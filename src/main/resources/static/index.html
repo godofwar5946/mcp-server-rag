@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP RAG 管理台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <header class="hero">
+    <div class="hero-text">
+      <h1>MCP RAG 管理台</h1>
+      <p>上传文档、解析切片、向量检索与 MCP 资源服务一站式管理。</p>
+    </div>
+    <div class="hero-panel">
+      <div class="panel-title">登录</div>
+      <div class="login-form">
+        <label>用户名
+          <input type="text" id="username" placeholder="admin">
+        </label>
+        <label>密码
+          <input type="password" id="password" placeholder="admin123">
+        </label>
+        <button id="loginBtn" class="btn primary">保存凭证</button>
+        <div class="login-hint">使用 Basic Auth 访问，保存后自动附加到 API 请求。</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="card">
+      <div class="card-header">
+        <h2>文档上传</h2>
+        <div class="card-subtitle">支持 txt/doc/docx/pdf/xls/xlsx/md</div>
+      </div>
+      <div class="upload-area">
+        <input type="file" id="fileInput" multiple>
+        <button id="uploadBtn" class="btn primary">上传并索引</button>
+        <span id="uploadStatus" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>文件列表</h2>
+        <div class="card-actions">
+          <button id="refreshBtn" class="btn ghost">刷新</button>
+          <button id="rebuildBtn" class="btn ghost">重建全部索引</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>文件名</th>
+              <th>大小</th>
+              <th>状态</th>
+              <th>更新时间</th>
+              <th>索引时间</th>
+              <th>切片数</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="fileTable">
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <button id="prevPage" class="btn ghost">上一页</button>
+        <span id="pageInfo">1 / 1</span>
+        <button id="nextPage" class="btn ghost">下一页</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="previewModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>解析预览</h3>
+        <button id="closePreview" class="btn ghost">关闭</button>
+      </div>
+      <pre id="previewText"></pre>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

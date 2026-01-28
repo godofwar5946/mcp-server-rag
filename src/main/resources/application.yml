@@ -1,0 +1,101 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: mcp-server-rag
+  datasource:
+    url: jdbc:postgresql://localhost:5432/postgres?currentSchema=rag
+    username: postgres
+    password: 123456789
+    driver-class-name: org.postgresql.Driver
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    mcp:
+      server:
+        enabled: true
+        protocol: STREAMABLE
+        type: SYNC
+        name: ${app.mcp.name}
+        version: ${app.mcp.version}
+        instructions: ${app.mcp.instructions}
+        capabilities:
+          resource: true
+          tool: true
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: ${app.mcp.endpoint}
+
+app:
+  security:
+    # 管理端登录账号
+    username: admin
+    password: admin123
+    # 允许访问管理页面与管理 API 的 IP 白名单
+    ip-whitelist:
+      - 127.0.0.1
+      - ::1
+
+  ollama:
+    # Ollama Embedding 服务地址
+    base-url: http://localhost:11434
+    model-name: bge-m3:latest
+    connect-timeout-seconds: 5
+    read-timeout-seconds: 60
+
+  chunking:
+    # 切片长度与重叠长度（字符数）
+    chunk-size: 1000
+    overlap: 150
+
+  rag:
+    default-top-k: 5
+    max-top-k: 20
+    max-chunk-chars: 1200
+    max-context-chars: 4000
+
+  embedding:
+    # 如已知模型维度可直接配置；未知时可保持空并开启 auto-detect
+    dimension: 768
+    auto-detect: true
+    # Embedding 输入最大字符数，过长将被截断以避免模型异常
+    max-input-chars: 2000
+
+  database:
+    # 是否在启动时自动建表（包含 pgvector 扩展）
+    init-schema: false
+
+  mcp:
+    # MCP 入口路径
+    endpoint: /mcp
+    name: rag-mcp-server
+    version: 1.0.0
+    instructions: |
+      这是一个“基于 RAG 的 MCP Server”。
+      - resource: rag.search（输入 query + topK，返回匹配切片）
+      - tool: rag.ask（输入 question + topK，返回可直接用于回答的上下文块）
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+mybatis-plus:
+  mapper-locations:
+    - classpath*:mapper/**/*.xml
+    - classpath*:com/baomidou/mybatis-plus/core/mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
