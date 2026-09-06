@@ -13,6 +13,9 @@ import java.util.List;
 public class TextChunker {
 
     public List<String> chunk(String text, int chunkSize, int overlap) {
+        if (chunkSize < 100 || overlap < 0 || overlap >= chunkSize) {
+            throw new IllegalArgumentException("切片长度至少为 100，重叠长度必须在 0 与切片长度之间");
+        }
         if (text == null || text.isBlank()) {
             return List.of();
         }
@@ -89,7 +92,7 @@ public class TextChunker {
             String overlapText = previous.length() > overlap
                     ? previous.substring(previous.length() - overlap)
                     : previous;
-            result.add(overlapText + chunk);
+            result.add(overlapText + "\n" + chunk);
             previous = chunk;
         }
         return result;

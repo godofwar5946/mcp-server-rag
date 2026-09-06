@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.rag.mapper.RagCodeSymbolMapper">
+
+  <sql id="folderCtes">
+    WITH RECURSIVE folder_paths AS (
+      SELECT d.id, d.parent_id, d.name::TEXT AS path
+      FROM rag_folder d
+      WHERE d.parent_id IS NULL
+      UNION ALL
+      SELECT d.id, d.parent_id, fp.path || '/' || d.name
+      FROM rag_folder d
+      JOIN folder_paths fp ON d.parent_id = fp.id
+    )
+  </sql>
+
+  <sql id="viewColumns">
+    s.id AS id,
+    s.file_id AS fileId,
+    s.parent_id AS parentId,
+    f.filename AS fileName,
+    COALESCE(fp.path, '') AS folderPath,
+    CASE WHEN fp.path IS NULL THEN f.filename ELSE fp.path || '/' || f.filename END AS filePath,
+    s.language AS language,
+    s.symbol_type AS symbolType,
+    s.simple_name AS simpleName,
+    s.qualified_name AS qualifiedName,
+    s.signature AS signature,
+    s.start_line AS startLine,
+    s.end_line AS endLine,
+    s.start_column AS startColumn,
+    s.end_column AS endColumn,
+    s.start_offset AS startOffset,
+    s.end_offset AS endOffset
+  </sql>
+
+  <sql id="folderCondition">
+    <if test="folderId != null">
+      AND (
+        (#{folderId} = 0 AND f.folder_id IS NULL)
+        OR f.folder_id IN (
+          WITH RECURSIVE folder_scope AS (
+            SELECT d.id
+            FROM rag_folder d
+            WHERE d.id = #{folderId}
+            UNION ALL
+            SELECT d.id
+            FROM rag_folder d
+            JOIN folder_scope fs ON d.parent_id = fs.id
+          )
+          SELECT id FROM folder_scope
+        )
+      )
+    </if>
+  </sql>
+
+  <select id="search" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    WHERE 1 = 1
+    <include refid="folderCondition"/>
+    <if test="query != null and query != ''">
+      AND (
+        LOWER(s.simple_name) LIKE '%' || LOWER(#{query}) || '%'
+        OR LOWER(s.qualified_name) LIKE '%' || LOWER(#{query}) || '%'
+        OR LOWER(COALESCE(s.signature, '')) LIKE '%' || LOWER(#{query}) || '%'
+      )
+    </if>
+    <choose>
+      <when test="category == 'CLASS'">
+        AND s.symbol_type IN ('JAVA_CLASS', 'JAVA_INTERFACE', 'JAVA_ENUM', 'JAVA_RECORD', 'JAVA_ANNOTATION')
+      </when>
+      <when test="category == 'METHOD'">
+        AND s.symbol_type IN ('JAVA_METHOD', 'JAVA_CONSTRUCTOR')
+      </when>
+      <when test="category == 'SQL'">
+        AND s.symbol_type IN ('XML_MAPPER', 'XML_SELECT', 'XML_INSERT', 'XML_UPDATE', 'XML_DELETE', 'XML_SQL_FRAGMENT')
+      </when>
+    </choose>
+    ORDER BY
+      CASE
+        WHEN LOWER(s.qualified_name) = LOWER(#{query}) THEN 0
+        WHEN LOWER(s.simple_name) = LOWER(#{query}) THEN 1
+        WHEN LOWER(COALESCE(s.signature, '')) = LOWER(#{query}) THEN 2
+        ELSE 3
+      END,
+      s.qualified_name,
+      s.start_line
+    LIMIT #{limit}
+  </select>
+
+  <select id="findViewById" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    WHERE s.id = #{id}
+  </select>
+
+  <select id="findClasses" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    WHERE s.symbol_type IN ('JAVA_CLASS', 'JAVA_INTERFACE', 'JAVA_ENUM', 'JAVA_RECORD', 'JAVA_ANNOTATION')
+      AND (
+        LOWER(s.qualified_name) = LOWER(#{className})
+        OR LOWER(s.simple_name) = LOWER(#{className})
+        OR LOWER(s.qualified_name) LIKE '%.' || LOWER(#{className})
+      )
+    <include refid="folderCondition"/>
+    ORDER BY
+      CASE
+        WHEN LOWER(s.qualified_name) = LOWER(#{className}) THEN 0
+        WHEN LOWER(s.simple_name) = LOWER(#{className}) THEN 1
+        ELSE 2
+      END,
+      s.qualified_name
+    LIMIT #{limit}
+  </select>
+
+  <select id="findMethods" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    LEFT JOIN rag_code_symbol owner ON owner.id = s.parent_id
+    WHERE s.symbol_type IN ('JAVA_METHOD', 'JAVA_CONSTRUCTOR')
+      AND LOWER(s.simple_name) = LOWER(#{methodName})
+    <if test="className != null and className != ''">
+      AND (
+        LOWER(owner.qualified_name) = LOWER(#{className})
+        OR LOWER(owner.simple_name) = LOWER(#{className})
+        OR LOWER(owner.qualified_name) LIKE '%.' || LOWER(#{className})
+      )
+    </if>
+    <if test="signature != null and signature != ''">
+      AND LOWER(s.signature) = LOWER(#{signature})
+    </if>
+    <include refid="folderCondition"/>
+    ORDER BY
+      <if test="className != null and className != ''">
+        CASE WHEN LOWER(owner.qualified_name) = LOWER(#{className}) THEN 0 ELSE 1 END,
+      </if>
+      owner.qualified_name,
+      s.signature,
+      s.start_line
+    LIMIT #{limit}
+  </select>
+
+  <select id="findSqlStatements" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    LEFT JOIN rag_code_symbol owner ON owner.id = s.parent_id
+    WHERE s.symbol_type IN ('XML_SELECT', 'XML_INSERT', 'XML_UPDATE', 'XML_DELETE', 'XML_SQL_FRAGMENT')
+      AND LOWER(s.simple_name) = LOWER(#{statementId})
+    <if test="namespace != null and namespace != ''">
+      AND (
+        LOWER(owner.qualified_name) = LOWER(#{namespace})
+        OR LOWER(owner.simple_name) = LOWER(#{namespace})
+        OR LOWER(owner.qualified_name) LIKE '%.' || LOWER(#{namespace})
+      )
+    </if>
+    <include refid="folderCondition"/>
+    ORDER BY
+      <if test="namespace != null and namespace != ''">
+        CASE WHEN LOWER(owner.qualified_name) = LOWER(#{namespace}) THEN 0 ELSE 1 END,
+      </if>
+      owner.qualified_name,
+      s.start_line
+    LIMIT #{limit}
+  </select>
+
+  <select id="findByPathAndLine" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    WHERE s.start_line &lt;= #{line}
+      AND s.end_line &gt;= #{line}
+      AND (
+        LOWER(CASE WHEN fp.path IS NULL THEN f.filename ELSE fp.path || '/' || f.filename END) = LOWER(#{filePath})
+        OR LOWER(CASE WHEN fp.path IS NULL THEN f.filename ELSE fp.path || '/' || f.filename END)
+             LIKE '%/' || LOWER(#{filePath})
+      )
+    <include refid="folderCondition"/>
+    ORDER BY
+      CASE
+        WHEN LOWER(CASE WHEN fp.path IS NULL THEN f.filename ELSE fp.path || '/' || f.filename END) = LOWER(#{filePath})
+        THEN 0 ELSE 1
+      END,
+      (s.end_line - s.start_line),
+      s.start_column DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="outline" resultType="org.example.rag.model.CodeSymbolView">
+    <include refid="folderCtes"/>
+    SELECT <include refid="viewColumns"/>
+    FROM rag_code_symbol s
+    JOIN rag_file f ON f.id = s.file_id
+    LEFT JOIN folder_paths fp ON fp.id = f.folder_id
+    WHERE s.file_id = #{fileId}
+    ORDER BY s.start_line, s.start_column, (s.end_line - s.start_line) DESC
+  </select>
+
+</mapper>

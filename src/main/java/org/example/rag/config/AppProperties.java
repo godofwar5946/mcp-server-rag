@@ -20,6 +20,39 @@ public class AppProperties {
     private final Mcp mcp = new Mcp();
     private final Embedding embedding = new Embedding();
     private final Database database = new Database();
+    private final Parsing parsing = new Parsing();
+    private final Indexing indexing = new Indexing();
+    public Parsing getParsing() { return parsing; }
+    public Indexing getIndexing() { return indexing; }
+
+    /** 有界解析，超限必须明确失败，不能悄悄发布截断后的知识。 */
+    public static class Parsing {
+        private int maxTextChars = 2_000_000;
+        public int getMaxTextChars() { return maxTextChars; }
+        public void setMaxTextChars(int value) {
+            if (value < 1000 || value > 20_000_000) throw new IllegalArgumentException("解析上限应在 1000～20000000 字符之间");
+            maxTextChars = value;
+        }
+    }
+
+    /** 持久化任务的容量边界；检索使用独立的模型调用额度。 */
+    public static class Indexing {
+        private int retentionDays=30;
+        public int getRetentionDays() { return retentionDays; }
+        public void setRetentionDays(int value) { retentionDays=Math.max(0,Math.min(3650,value)); }
+        private boolean enabled = true;
+        private int workers = 1;
+        private int maxQueuedJobs = 2000;
+        private int leaseSeconds = 180;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean value) { enabled = value; }
+        public int getWorkers() { return workers; }
+        public void setWorkers(int value) { workers = Math.max(1, Math.min(value, 8)); }
+        public int getMaxQueuedJobs() { return maxQueuedJobs; }
+        public void setMaxQueuedJobs(int value) { maxQueuedJobs = Math.max(1, value); }
+        public int getLeaseSeconds() { return leaseSeconds; }
+        public void setLeaseSeconds(int value) { leaseSeconds = Math.max(90, value); }
+    }
 
     public Security getSecurity() {
         return security;
@@ -50,11 +83,14 @@ public class AppProperties {
     }
 
     /**
-     * 安全相关配置：Basic Auth + IP 白名单。
+     * 安全相关配置：Session 登录 + IP 白名单。
      */
     public static class Security {
+        private List<String> trustedProxies = new ArrayList<>();
+        public List<String> getTrustedProxies() { return trustedProxies; }
+        public void setTrustedProxies(List<String> value) { trustedProxies = value; }
         private String username = "admin";
-        private String password = "admin123";
+        private String password = "";
         private List<String> ipWhitelist = new ArrayList<>(List.of("127.0.0.1", "::1"));
 
         public String getUsername() {
@@ -152,6 +188,21 @@ public class AppProperties {
      * RAG 查询相关配置。
      */
     public static class Rag {
+        private boolean hybrid = true;
+        private int candidateCount = 40;
+        private double minSimilarity = 0;
+        private int maxCodeChars = 24000;
+        public boolean isHybrid() { return hybrid; }
+        public void setHybrid(boolean value) { hybrid = value; }
+        public int getCandidateCount() { return candidateCount; }
+        public void setCandidateCount(int value) { candidateCount = Math.max(10,Math.min(value,200)); }
+        public double getMinSimilarity() { return minSimilarity; }
+        public void setMinSimilarity(double value) {
+            if (!Double.isFinite(value) || value<0 || value>1) throw new IllegalArgumentException("相关性阈值应在 0～1 之间");
+            minSimilarity = value;
+        }
+        public int getMaxCodeChars() { return maxCodeChars; }
+        public void setMaxCodeChars(int value) { maxCodeChars = Math.max(1000, Math.min(value,100000)); }
         private int defaultTopK = 5;
         private int maxTopK = 20;
         private int maxChunkChars = 1200;
@@ -236,6 +287,18 @@ public class AppProperties {
      * Embedding 向量维度配置。
      */
     public static class Embedding {
+        private int batchSize = 16;
+        private int cacheSize = 512;
+        private int maxConcurrentRequests = 2;
+        private boolean batchEnabled = true;
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int value) { batchSize = Math.max(1, Math.min(value, 128)); }
+        public int getCacheSize() { return cacheSize; }
+        public void setCacheSize(int value) { cacheSize = Math.max(0, Math.min(value, 10000)); }
+        public int getMaxConcurrentRequests() { return maxConcurrentRequests; }
+        public void setMaxConcurrentRequests(int value) { maxConcurrentRequests = Math.max(1, Math.min(value, 16)); }
+        public boolean isBatchEnabled() { return batchEnabled; }
+        public void setBatchEnabled(boolean value) { batchEnabled = value; }
         private Integer dimension;
         private boolean autoDetect = true;
         private int maxInputChars = 2000;
@@ -269,6 +332,9 @@ public class AppProperties {
      * 数据库初始化配置。
      */
     public static class Database {
+        private boolean migrateSchema = true;
+        public boolean isMigrateSchema() { return migrateSchema; }
+        public void setMigrateSchema(boolean value) { migrateSchema = value; }
         private boolean initSchema = true;
 
         public boolean isInitSchema() {

@@ -7,6 +7,10 @@ public record IndexResult(
         Long fileId,
         String fileName,
         boolean success,
-        String message
+        String message,
+        boolean skipped
 ) {
+    public IndexResult(Long fileId, String fileName, boolean success, String message) {
+        this(fileId, fileName, success, message, false);
+    }
 }

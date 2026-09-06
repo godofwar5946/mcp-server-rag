@@ -12,6 +12,10 @@ import java.time.LocalDateTime;
  */
 @TableName("rag_chunk")
 public class RagChunkEntity {
+    @TableField(exist=false)
+    private boolean truncated;
+    public boolean isTruncated() { return truncated; }
+    public void setTruncated(boolean value) { truncated=value; }
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -22,11 +26,21 @@ public class RagChunkEntity {
     @TableField("chunk_index")
     private Integer chunkIndex;
 
+    @TableField("code_symbol_id")
+    private Long codeSymbolId;
+
+    @TableField("start_line")
+    private Integer startLine;
+
+    @TableField("end_line")
+    private Integer endLine;
+
     private String content;
 
     /**
      * pgvector 需要使用 "[1,2,3]" 字符串写入。
      */
+    @TableField(exist=false)
     private String embedding;
 
     @TableField("metadata")
@@ -60,6 +74,30 @@ public class RagChunkEntity {
 
     public void setChunkIndex(Integer chunkIndex) {
         this.chunkIndex = chunkIndex;
+    }
+
+    public Long getCodeSymbolId() {
+        return codeSymbolId;
+    }
+
+    public void setCodeSymbolId(Long codeSymbolId) {
+        this.codeSymbolId = codeSymbolId;
+    }
+
+    public Integer getStartLine() {
+        return startLine;
+    }
+
+    public void setStartLine(Integer startLine) {
+        this.startLine = startLine;
+    }
+
+    public Integer getEndLine() {
+        return endLine;
+    }
+
+    public void setEndLine(Integer endLine) {
+        this.endLine = endLine;
     }
 
     public String getContent() {

@@ -45,3 +45,5 @@ build/
 ### 本地codex配置文件
 codex.txt
 AGENT.md
+# 本机凭据（不进入源码和构建产物）
+/config/application-local.yml

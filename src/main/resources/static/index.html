@@ -3,89 +3,445 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MCP RAG 管理台</title>
+  <title>RAG Studio · 知识服务工作台</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="workspace.css">
 </head>
 <body>
+  <section id="sessionGate" class="session-gate" aria-labelledby="sessionTitle">
+    <div class="eyebrow">RAG STUDIO</div>
+    <h1 id="sessionTitle">连接管理端</h1>
+    <p id="sessionMessage" role="status">正在验证登录状态…</p>
+    <div id="sessionRecovery" class="session-recovery" hidden>
+      <button id="retrySessionBtn" class="btn primary" type="button">重新验证</button>
+      <a class="btn ghost" href="login.html">返回登录页</a>
+    </div>
+    <noscript><p>请启用 JavaScript 后刷新页面。</p></noscript>
+  </section>
+
+  <div id="authenticatedWorkspace" hidden>
+  <div class="grain"></div>
   <div class="bg-orb orb-1"></div>
   <div class="bg-orb orb-2"></div>
 
   <header class="hero">
     <div class="hero-text">
-      <h1>MCP RAG 管理台</h1>
-      <p>上传文档、解析切片、向量检索与 MCP 资源服务一站式管理。</p>
+      <div class="eyebrow">RAG STUDIO <span class="edition">MCP SERVICE</span></div>
+      <h1>知识服务工作台</h1>
+      <p>管理知识 · 调试检索 · 追溯来源</p>
     </div>
-    <div class="hero-panel">
-      <div class="panel-title">登录</div>
-      <div class="login-form">
-        <label>用户名
-          <input type="text" id="username" placeholder="admin">
-        </label>
-        <label>密码
-          <input type="password" id="password" placeholder="admin123">
-        </label>
-        <button id="loginBtn" class="btn primary">保存凭证</button>
-        <div class="login-hint">使用 Basic Auth 访问，保存后自动附加到 API 请求。</div>
-      </div>
+    <div class="session-account" aria-label="当前账号">
+      <span id="authStatus" class="auth-status" data-state="online"></span>
+      <button id="logoutBtn" class="btn ghost" type="button">退出登录</button>
     </div>
   </header>
 
   <main class="main">
-    <section class="card">
-      <div class="card-header">
-        <h2>文档上传</h2>
-        <div class="card-subtitle">支持 txt/doc/docx/pdf/xls/xlsx/md</div>
-      </div>
-      <div class="upload-area">
-        <input type="file" id="fileInput" multiple>
-        <button id="uploadBtn" class="btn primary">上传并索引</button>
-        <span id="uploadStatus" class="status"></span>
+    <nav class="workspace-tabs" aria-label="工作区">
+      <button type="button" data-view="library" aria-current="page">知识库</button>
+      <button type="button" data-view="retrieval">检索调试</button>
+      <button type="button" data-view="code">代码导航</button>
+      <button type="button" data-view="jobs">任务中心 <span id="jobBadge" class="count-badge">0</span></button>
+      <button type="button" data-view="evaluation">质量评测</button>
+      <button type="button" data-view="system">服务与模型</button>
+    </nav>
+    <section id="workspaceCard" class="card workspace-card">
+      <aside id="folderPane" class="folder-pane">
+        <div class="pane-header">
+          <div class="pane-title">
+            <div class="section-kicker">LIBRARY</div>
+            <h2>目录库</h2>
+          </div>
+          <div class="pane-header-actions">
+            <span id="folderCount" class="count-badge" title="目录总数">0</span>
+            <button id="folderPaneToggle" class="pane-toggle" type="button"
+                    aria-label="收起目录栏" title="收起目录栏">
+              <span aria-hidden="true">‹</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="folderPaneBody" class="folder-pane-body">
+          <div class="folder-search-shell">
+            <span class="search-glyph" aria-hidden="true"></span>
+            <input type="search" id="folderSearch" placeholder="搜索目录名称或完整路径"
+                   aria-label="搜索目录">
+            <button id="clearFolderSearch" class="field-clear hidden" type="button"
+                    aria-label="清空目录搜索">×</button>
+          </div>
+
+          <div id="folderShortcuts" class="folder-shortcuts" aria-label="目录快捷入口"></div>
+
+          <div class="tree-toolbar">
+            <span id="folderTreeMeta">目录树</span>
+            <div class="tree-toolbar-actions">
+              <button id="locateFolderBtn" type="button">定位当前</button>
+              <button id="collapseFoldersBtn" type="button">全部收起</button>
+            </div>
+          </div>
+          <div id="folderTree" class="folder-tree" role="tree" aria-label="知识库目录树"></div>
+        </div>
+
+        <div class="pane-collapsed-label" aria-hidden="true">
+          <span>LIBRARY</span>
+        </div>
+      </aside>
+
+      <div class="file-pane">
+        <nav id="folderBreadcrumb" class="folder-breadcrumb" aria-label="当前目录路径"></nav>
+
+        <div class="file-header">
+          <div class="file-heading">
+            <div class="section-kicker">FILES &amp; SOURCE</div>
+            <div class="file-title-line">
+              <h2 id="currentFolderTitle">全部文件</h2>
+              <span id="currentFileCount" class="file-count">0 个文件</span>
+            </div>
+            <div id="currentFolderPath" class="current-folder-path">跨目录查看整个知识库</div>
+          </div>
+          <div class="file-header-actions">
+            <div class="context-actions">
+              <button id="parentFolderBtn" class="btn ghost small" disabled>上一级</button>
+              <button id="createFolderBtn" class="btn primary small">新建下级目录</button>
+              <button id="renameFolderBtn" class="btn ghost small" disabled>重命名</button>
+              <button id="exportFolderBtn" class="btn ghost small" disabled>导出 ZIP</button>
+              <button id="knowledgeTypeBtn" class="btn ghost small" disabled>设置检索类型</button>
+              <button id="deleteFolderBtn" class="btn danger small" disabled>删除目录</button>
+            </div>
+            <div class="utility-actions">
+              <button id="refreshBtn" class="btn ghost small">刷新</button>
+              <button id="rebuildBtn" class="btn ghost small">重建全部索引</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="ingest-dock" aria-labelledby="ingestTitle">
+          <div class="ingest-target">
+            <span id="ingestTitle">上传到当前目录</span>
+            <strong id="uploadTarget">根目录</strong>
+          </div>
+          <div class="ingest-options">
+            <article id="fileUploadQueue" class="ingest-option">
+              <div class="ingest-option-copy">
+                <strong>文档或源码</strong>
+                <span id="fileSelection" class="selection-hint">尚未选择文件</span>
+              </div>
+              <div class="ingest-actions">
+                <button id="chooseFilesBtn" class="btn ghost small">选择文件</button>
+                <button id="uploadFilesBtn" class="btn primary small" disabled>提交索引</button>
+              </div>
+            </article>
+
+            <article id="folderUploadQueue" class="ingest-option folder-ingest-option">
+              <div class="ingest-option-copy">
+                <strong>完整项目或文件夹</strong>
+                <span id="folderSelection" class="selection-hint">保留层级并忽略构建目录</span>
+              </div>
+              <div class="ingest-actions">
+                <button id="chooseFolderBtn" class="btn ghost small">选择文件夹</button>
+                <button id="uploadFolderBtn" class="btn primary small" disabled>上传文件夹</button>
+              </div>
+            </article>
+          </div>
+          <input type="file" id="fileInput"
+                 accept=".txt,.md,.doc,.docx,.pdf,.xls,.xlsx,.java,.xml" multiple hidden>
+          <input type="file" id="folderInput"
+                 accept=".txt,.md,.doc,.docx,.pdf,.xls,.xlsx,.java,.xml"
+                 webkitdirectory directory multiple hidden>
+          <div id="uploadStatus" class="status-line" aria-live="polite"></div>
+        </section>
+
+        <div class="file-filters" role="search" aria-label="筛选文件">
+          <input id="fileQuery" type="search" maxlength="255" placeholder="搜索文件名称…" aria-label="搜索文件名称">
+          <select id="fileStatus" aria-label="索引状态"><option value="">全部状态</option><option value="INDEXED">已索引</option><option value="PENDING">待索引</option><option value="FAILED">索引失败</option></select>
+          <select id="fileType" aria-label="检索分类"><option value="">全部分类</option><option value="ALL">通用</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select>
+          <select id="fileSort" aria-label="文件排序"><option value="updated">最近更新</option><option value="name">名称排序</option><option value="size">文件大小</option></select>
+          <select id="pageSize" aria-label="每页数量"><option value="10">10 / 页</option><option value="25">25 / 页</option><option value="50">50 / 页</option><option value="100">100 / 页</option></select>
+        </div>
+        <div id="batchBar" class="batch-bar hidden" aria-live="polite">
+          <strong id="selectionCount">已选 0 项</strong>
+          <button type="button" id="batchRebuild" class="btn ghost small">重建索引</button>
+          <button type="button" id="batchMove" class="btn ghost small">移动</button>
+          <select id="batchType" aria-label="批量分类"><option value="ALL">通用</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select>
+          <button type="button" id="batchClassify" class="btn ghost small">设置分类</button>
+          <button type="button" id="batchDelete" class="btn danger small">删除</button>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <caption class="sr-only">当前目录文件列表</caption>
+            <thead>
+              <tr>
+                <th class="selection-cell"><input type="checkbox" id="selectPage" aria-label="选择当前页全部文件"></th>
+                <th>文件名</th>
+                <th>检索类型</th>
+                <th>大小</th>
+                <th>状态</th>
+                <th>更新时间</th>
+                <th>切片</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="fileTable"></tbody>
+          </table>
+        </div>
+        <div id="emptyFiles" class="empty-state hidden">当前目录还没有文档</div>
+        <div class="pagination">
+          <button id="prevPage" class="btn ghost">上一页</button>
+          <span id="pageInfo">1 / 1</span>
+          <button id="nextPage" class="btn ghost">下一页</button>
+        </div>
       </div>
     </section>
 
-    <section class="card">
-      <div class="card-header">
-        <h2>文件列表</h2>
-        <div class="card-actions">
-          <button id="refreshBtn" class="btn ghost">刷新</button>
-          <button id="rebuildBtn" class="btn ghost">重建全部索引</button>
+    <section id="codePanel" class="card code-card hidden">
+      <div class="card-header code-header">
+        <div>
+          <div class="section-kicker">CODE NAVIGATOR</div>
+          <h2>按结构定位源码</h2>
+          <p>精确搜索 Java 类、方法与 MyBatis SQL，或通过文件路径和行号找到所在逻辑。</p>
+        </div>
+        <div class="target-chip">范围 <strong id="codeScope">全部目录</strong></div>
+      </div>
+
+      <div class="code-query-grid">
+        <div class="query-block">
+          <label for="codeQuery">符号名称或签名</label>
+          <div class="query-controls">
+            <input type="text" id="codeQuery" placeholder="例如 UserService、findById 或 selectUser">
+            <select id="codeCategory" aria-label="代码符号类型">
+              <option value="ALL">全部类型</option>
+              <option value="CLASS">Java 类</option>
+              <option value="METHOD">Java 方法</option>
+              <option value="SQL">XML SQL</option>
+            </select>
+            <button id="searchCodeBtn" class="btn primary">搜索符号</button>
+          </div>
+        </div>
+        <div class="query-block location-block">
+          <label for="codePath">文件路径与行号</label>
+          <div class="query-controls location-controls">
+            <input type="text" id="codePath" placeholder="src/main/java/demo/UserService.java">
+            <input type="number" id="codeLine" min="1" placeholder="行号">
+            <button id="locateCodeBtn" class="btn ghost">定位代码</button>
+          </div>
         </div>
       </div>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>文件名</th>
-              <th>大小</th>
-              <th>状态</th>
-              <th>更新时间</th>
-              <th>索引时间</th>
-              <th>切片数</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="fileTable">
-          </tbody>
-        </table>
+      <div id="codeSearchStatus" class="status-line" aria-live="polite"></div>
+      <div id="codeResults" class="code-results"></div>
+      <div id="emptyCodeResults" class="empty-state code-empty">输入类名、方法名、SQL ID 或源码位置开始检索</div>
+    </section>
+
+    <section id="retrievalPanel" class="card tool-panel hidden" aria-labelledby="retrievalTitle">
+      <div class="tool-heading"><div><div class="section-kicker">RETRIEVAL LAB</div><h2 id="retrievalTitle">每一次命中，都有依据</h2><p>查看实际召回结果，验证目录范围、切片内容和上下文质量。</p></div><span class="target-chip">与 MCP 共用检索流程</span></div>
+      <form id="retrievalForm">
+        <label for="retrievalQuery">检索问题</label>
+        <textarea id="retrievalQuery" rows="3" maxlength="2000" required placeholder="输入业务问题、技术概念或需要查找的代码逻辑…"></textarea>
+        <div class="query-options">
+          <label>目录范围<select id="retrievalFolder" class="scope-select"><option value="">全部目录</option></select></label>
+          <label>分类<select id="retrievalType"><option value="ALL">全部分类</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select></label>
+          <label>召回模式<select id="retrievalMode"><option value="hybrid">混合检索</option><option value="vector">纯向量</option><option value="keyword">关键词</option></select></label>
+          <label>Top K<input id="retrievalTopK" type="number" min="1" max="20" value="5" required></label>
+          <label>最低向量相似度<input id="retrievalThreshold" type="number" min="0" max="1" step="0.05" value="0" required></label>
+          <button id="retrieveBtn" class="btn primary" type="submit">开始检索</button>
+        </div>
+      </form>
+      <div id="retrievalStatus" class="status-line" role="status">输入问题后开始。关键词模式无需调用向量模型。</div>
+      <div id="retrievalSummary" class="metric-strip hidden"></div>
+      <div class="evidence-layout">
+        <div id="retrievalHits" class="hit-list"><div class="empty-state">命中的证据片段会显示在这里</div></div>
+        <aside class="evidence-pane"><div class="evidence-heading"><h3>来源与上下文</h3><button id="copyContext" type="button" class="btn ghost small" disabled>复制上下文</button></div><div id="evidenceMeta" class="source-meta">选择一条结果，查看完整切片。</div><pre id="evidenceText">上下文将按长度预算组织，并保留可追溯的来源。</pre><button id="showContext" type="button" class="btn ghost small" disabled>查看最终上下文</button></aside>
       </div>
-      <div class="pagination">
-        <button id="prevPage" class="btn ghost">上一页</button>
-        <span id="pageInfo">1 / 1</span>
-        <button id="nextPage" class="btn ghost">下一页</button>
-      </div>
+    </section>
+
+    <section id="jobsPanel" class="card tool-panel hidden" aria-labelledby="jobsTitle">
+      <div class="tool-heading"><div><div class="section-kicker">INDEX OPERATIONS</div><h2 id="jobsTitle">索引任务</h2><p>文件保存后进入队列。新索引发布前，已有内容继续可检索。</p></div><button id="refreshJobs" type="button" class="btn ghost">刷新任务</button></div>
+      <div class="file-filters"><select id="jobStatus" aria-label="筛选任务状态"><option value="">全部任务</option><option value="QUEUED">排队中</option><option value="RUNNING">处理中</option><option value="FAILED">失败</option><option value="SUCCEEDED">已完成</option><option value="SKIPPED">内容未变</option><option value="CANCELLED">已取消</option></select><span id="jobsSummary" role="status">任务状态自动更新</span></div>
+      <div id="jobsList" class="job-list"></div>
+      <div class="pagination"><button id="jobsPrev" type="button" class="btn ghost">上一页</button><span id="jobsPage">第 1 页</span><button id="jobsNext" type="button" class="btn ghost">下一页</button></div>
+    </section>
+
+    <section id="evaluationPanel" class="card tool-panel hidden" aria-labelledby="evaluationTitle">
+      <div class="tool-heading"><div><div class="section-kicker">RETRIEVAL QUALITY</div><h2 id="evaluationTitle">用真实问题验证检索</h2><p>人工标注参考文件，比较纯向量与混合检索。指标衡量检索结果，不代表生成答案的正确率。</p></div><button id="exportEvaluation" type="button" class="btn ghost">导出评测记录</button></div>
+      <form id="evaluationForm" class="evaluation-form">
+        <label>评测问题<input id="evalQuestion" required maxlength="2000" placeholder="例如：订单超时后如何处理退款？"></label>
+        <div class="query-options"><label>目录范围<select id="evalFolder" class="scope-select"><option value="">全部目录</option></select></label><label>分类<select id="evalType"><option value="ALL">全部分类</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select></label><label class="grow">参考文件 ID<input id="evalExpected" placeholder="例如 12, 18，可在文件详情查看"></label><label class="check-label"><input id="evalEmpty" type="checkbox">应无结果</label><button type="submit" class="btn primary">添加问题</button></div>
+      </form>
+      <div class="file-filters"><label>Top K <input id="evalTopK" type="number" min="1" max="20" value="5"></label><label>最低相似度 <input id="evalThreshold" type="number" min="0" max="1" step="0.05" value="0"></label><button id="runEvaluation" type="button" class="btn primary">对比运行全部问题</button><button id="stopEvaluation" type="button" class="btn ghost hidden">本题完成后停止</button></div>
+      <div id="evaluationStatus" class="status-line" role="status">添加真实问题与人工确认的参考文件后，建立第一份基线。</div>
+      <div id="evaluationSummary" class="metric-strip"></div>
+      <div id="evaluationCases" class="evaluation-cases"></div>
+      <p class="panel-note">命中率：有参考文件命中的问题占比；Recall@K：命中的参考文件占比；MRR：首个正确切片排名的倒数。应无结果的问题单独计入空结果准确率。阈值为 0 时，向量检索通常仍会返回最近邻。</p>
+    </section>
+
+    <section id="systemPanel" class="card tool-panel hidden" aria-labelledby="systemTitle">
+      <div class="tool-heading"><div><div class="section-kicker">SERVICE OVERVIEW</div><h2 id="systemTitle">服务与模型</h2><p>管理向量模型，查看知识库容量与运行指标。</p></div><button id="refreshSystem" type="button" class="btn ghost">刷新状态</button></div>
+      <section class="model-manager" aria-labelledby="modelManagerTitle">
+        <div class="model-heading"><div><h3 id="modelManagerTitle">Embedding 模型</h3><p>选择已安装的模型，验证后重建整个知识库的向量索引。</p></div><span class="model-badge">全库生效</span></div>
+        <div class="model-current"><span>当前生效</span><strong id="modelCurrentName">正在读取…</strong><span id="modelCurrentDetails"></span></div>
+        <div id="modelStatusMessage" class="model-message" role="status" aria-live="polite"></div>
+        <form id="modelForm">
+          <fieldset id="modelFields" disabled>
+            <legend class="sr-only">选择目标模型</legend>
+            <div class="model-form-grid">
+              <label>目标模型<select id="modelSelect" required aria-describedby="modelCatalogNote"><option value="">请先读取模型列表</option></select></label>
+              <button id="modelRefreshCatalog" type="button" class="btn ghost">刷新模型列表</button>
+              <label>输出维度<select id="modelDimensionMode"><option value="native">自动检测原生维度</option><option value="custom">指定输出维度</option></select></label>
+              <label id="modelDimensionLabel" class="hidden">指定维度<input id="modelDimension" type="number" min="1" max="16000" step="1" placeholder="例如 1024" disabled></label>
+            </div>
+            <p id="modelCatalogNote" class="panel-note">列表来自当前配置的 Ollama。生成模型也可能在列表中，请先验证向量能力；尚未安装的模型需在 Ollama 服务端下载。</p>
+            <details class="model-advanced"><summary>高级设置：查询指令</summary><label>仅添加在查询文本前，文档切片不添加<textarea id="modelInstruction" rows="2" maxlength="1000" placeholder="选填。按模型说明填写查询前缀或指令，留空使用原始查询。"></textarea></label></details>
+            <div class="model-actions"><button id="modelProbe" type="submit" class="btn ghost">验证模型</button><button id="modelSwitch" type="button" class="btn primary" disabled>切换并重建全部索引</button></div>
+          </fieldset>
+        </form>
+        <div id="modelProbeResult" class="model-message" role="status" aria-live="polite">选择模型后先验证，再提交切换。</div>
+        <div id="modelRebuild" class="model-rebuild hidden" aria-labelledby="modelRunTitle">
+          <div class="model-heading"><h4 id="modelRunTitle">模型重建任务</h4><span id="modelRunStatus" class="model-badge"></span></div>
+          <p id="modelRunTarget"></p><progress id="modelRunProgress" max="100" value="0" aria-label="全库向量重建进度"></progress>
+          <div id="modelRunSummary" class="model-message" role="status" aria-live="polite"></div>
+          <p id="modelRunMessage" class="model-message"></p>
+          <div class="model-actions"><button id="modelRetry" type="button" class="btn ghost hidden">从已完成进度重试</button><button id="modelCancel" type="button" class="btn ghost hidden">取消本次切换</button></div>
+        </div>
+        <p class="panel-note">覆盖所有目录、业务资料和代码的已发布切片。后台重新生成向量，全部完成后统一切换；期间继续使用当前模型与索引。原始文件、切片规则与代码定位保持不变，未成功解析的文件可到任务中心重试。进度会保存，关闭页面不影响处理。</p>
+      </section>
+      <div id="systemStatus" class="status-line" role="status"></div><div id="systemMetrics" class="metric-strip"></div>
+      <div class="system-grid"><article><h3>索引配置</h3><dl id="systemConfig"></dl></article><article><h3>MCP 客户端连接</h3><p>使用支持 Streamable HTTP 的客户端连接此地址。</p><pre id="mcpUrl"></pre><button id="copyMcp" type="button" class="btn ghost small">复制地址</button><p class="panel-note">当前分支使用匿名 MCP 接口；知识库管理使用登录会话。</p></article></div>
     </section>
   </main>
 
-  <div id="previewModal" class="modal hidden">
-    <div class="modal-content">
+  <div id="previewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+    <div class="modal-content preview-content">
       <div class="modal-header">
-        <h3>解析预览</h3>
+        <h3 id="previewTitle">解析预览</h3>
         <button id="closePreview" class="btn ghost">关闭</button>
       </div>
+      <div id="previewMeta" class="source-meta"></div>
+      <div class="file-filters"><button id="previewSourceTab" type="button" class="btn ghost small">解析原文</button><button id="previewChunksTab" type="button" class="btn ghost small">索引切片</button></div>
       <pre id="previewText"></pre>
+      <div id="previewChunks" class="hidden"></div>
+      <div class="pagination"><button id="previewPrev" type="button" class="btn ghost">上一段</button><span id="previewPage"></span><button id="previewNext" type="button" class="btn ghost">下一段</button></div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <div id="moveModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="moveTitle">
+    <div class="modal-content move-content">
+      <div class="modal-header">
+        <div>
+          <div class="section-kicker">MOVE FILE</div>
+          <h3 id="moveTitle">选择目标目录</h3>
+          <div id="moveFileName" class="modal-subtitle"></div>
+        </div>
+        <button id="closeMove" class="btn ghost">关闭</button>
+      </div>
+      <div class="folder-search-shell modal-folder-search">
+        <span class="search-glyph" aria-hidden="true"></span>
+        <input type="search" id="moveFolderSearch" placeholder="搜索目标目录完整路径"
+               aria-label="搜索目标目录">
+      </div>
+      <div id="moveFolderOptions" class="move-folder-options" role="listbox"
+           aria-label="目标目录"></div>
+      <div class="move-footer">
+        <div class="move-target-summary">
+          <span>将移动到</span>
+          <strong id="moveTargetPath">请选择目标目录</strong>
+        </div>
+        <button id="confirmMove" class="btn primary" disabled>确认移动</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="folderEditorModal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="folderEditorTitle">
+    <div class="modal-content folder-editor-content">
+      <div class="modal-header">
+        <div>
+          <div id="folderEditorKicker" class="section-kicker">NEW FOLDER</div>
+          <h3 id="folderEditorTitle">新建目录</h3>
+          <div id="folderEditorContext" class="modal-subtitle"></div>
+        </div>
+        <button id="closeFolderEditor" class="btn ghost">关闭</button>
+      </div>
+      <label class="editor-label" for="folderNameInput">目录名称</label>
+      <input type="text" id="folderNameInput" maxlength="255" autocomplete="off"
+             placeholder="请输入目录名称">
+      <div class="modal-actions">
+        <button id="cancelFolderEditor" class="btn ghost">取消</button>
+        <button id="confirmFolderEditor" class="btn primary">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="knowledgeTypeModal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="knowledgeTypeTitle">
+    <div class="modal-content knowledge-type-content">
+      <div class="modal-header">
+        <div>
+          <div class="section-kicker">SEARCH CLASSIFICATION</div>
+          <h3 id="knowledgeTypeTitle">批量设置检索类型</h3>
+          <div id="knowledgeTypeContext" class="modal-subtitle"></div>
+        </div>
+        <button id="closeKnowledgeType" class="btn ghost">关闭</button>
+      </div>
+
+      <div id="knowledgeTypeOptions" class="knowledge-type-options" role="radiogroup"
+           aria-label="文件检索类型">
+        <button class="knowledge-type-option selected" type="button" data-knowledge-type="ALL"
+                role="radio" aria-checked="true">
+          <span class="knowledge-type-code type-all">ALL</span>
+          <span class="knowledge-type-copy">
+            <strong>全部可查</strong>
+            <small>默认类型，同时参加业务与代码分类检索</small>
+          </span>
+        </button>
+        <button class="knowledge-type-option" type="button" data-knowledge-type="BUSINESS"
+                role="radio" aria-checked="false">
+          <span class="knowledge-type-code type-business">BIZ</span>
+          <span class="knowledge-type-copy">
+            <strong>业务资料</strong>
+            <small>进入全部检索和 business.search</small>
+          </span>
+        </button>
+        <button class="knowledge-type-option" type="button" data-knowledge-type="CODE"
+                role="radio" aria-checked="false">
+          <span class="knowledge-type-code type-code">CODE</span>
+          <span class="knowledge-type-copy">
+            <strong>代码资料</strong>
+            <small>进入全部检索和 Java / XML 代码检索</small>
+          </span>
+        </button>
+      </div>
+
+      <label class="recursive-option">
+        <input id="knowledgeTypeRecursive" type="checkbox" checked>
+        <span>
+          <strong>包含所有下级目录</strong>
+          <small>适合一次标记完整项目或整套业务资料</small>
+        </span>
+      </label>
+      <div class="classification-note">保存后立即更新现有文件分类，并作为此目录后续上传的默认分类；勾选包含子目录时同时更新下级目录的默认值。无需重新生成向量。</div>
+      <div class="modal-actions">
+        <button id="cancelKnowledgeType" class="btn ghost">取消</button>
+        <button id="confirmKnowledgeType" class="btn primary">应用到目录</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="codeModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="codeModalTitle">
+    <div class="modal-content code-modal-content">
+      <div class="modal-header">
+        <div>
+          <div id="codeModalType" class="section-kicker">SOURCE</div>
+          <h3 id="codeModalTitle">源码</h3>
+          <div id="codeModalMeta" class="code-source-meta"></div>
+        </div>
+        <button id="closeCodeModal" class="btn ghost">关闭</button>
+      </div>
+      <pre id="codeSourceText" class="code-source"></pre>
+    </div>
+  </div>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  </div>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>

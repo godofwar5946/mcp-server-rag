@@ -8,10 +8,15 @@ import java.time.LocalDateTime;
 public record FileListItem(
         long id,
         String filename,
+        Long folderId,
+        String folderPath,
+        String knowledgeType,
         long size,
         String status,
         LocalDateTime updatedAt,
         LocalDateTime indexedAt,
-        long chunkCount
+        long chunkCount,
+        String errorMessage,
+        long revision
 ) {
 }

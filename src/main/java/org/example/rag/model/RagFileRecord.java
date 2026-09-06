@@ -8,7 +8,9 @@ import java.time.LocalDateTime;
 public record RagFileRecord(
         Long id,
         String filename,
+        Long folderId,
         String contentType,
+        String knowledgeType,
         long size,
         byte[] contentBytes,
         String parsedText,

@@ -25,13 +25,20 @@ public class IpWhitelistFilter extends OncePerRequestFilter {
 
     private final List<String> ipWhitelist;
     private final List<String> ignorePatterns;
+    private final List<String> trustedProxies;
     private final ObjectMapper objectMapper;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
     public IpWhitelistFilter(List<String> ipWhitelist, List<String> ignorePatterns, ObjectMapper objectMapper) {
+        this(ipWhitelist, ignorePatterns, List.of(), objectMapper);
+    }
+
+    public IpWhitelistFilter(List<String> ipWhitelist, List<String> ignorePatterns,
+                             List<String> trustedProxies, ObjectMapper objectMapper) {
         this.ipWhitelist = ipWhitelist;
         this.ignorePatterns = ignorePatterns;
         this.objectMapper = objectMapper;
+        this.trustedProxies = trustedProxies == null ? List.of() : List.copyOf(trustedProxies);
     }
 
     @Override
@@ -70,14 +77,26 @@ public class IpWhitelistFilter extends OncePerRequestFilter {
         Map<String, Object> payload = new HashMap<>();
         payload.put("success", false);
         payload.put("message", message);
+        payload.put("clientIp", ip);
+        response.setCharacterEncoding("UTF-8");
         response.getWriter().write(objectMapper.writeValueAsString(payload));
     }
 
     private String resolveClientIp(HttpServletRequest request) {
+        String remote = request.getRemoteAddr();
+        if (!trustedProxies.contains(remote)) {
+            return remote;
+        }
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
+            // 从可信代理一侧向左寻找首个非可信节点，不能信任用户自行添加的最左地址。
+            String[] hops = forwarded.split(",");
+            for (int i = hops.length - 1; i >= 0; i--) {
+                String hop = hops[i].trim();
+                if (hop.isEmpty()) return remote;
+                if (!trustedProxies.contains(hop)) return hop;
+            }
         }
-        return request.getRemoteAddr();
+        return remote;
     }
 }

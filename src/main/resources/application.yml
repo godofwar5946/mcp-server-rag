@@ -1,13 +1,30 @@
 server:
   port: 8082
+  servlet:
+    session:
+      # 管理端登录后在 12 小时内复用同一服务端 Session
+      timeout: 12h
+      cookie:
+        http-only: true
+        same-site: lax
+        max-age: 12h
+  tomcat:
+    # 文件夹上传会为每个文件同时提交文件内容和相对路径两个 part
+    max-part-count: 2000
 
 spring:
+  config:
+    import: optional:file:./config/application-local.yml
+  task:
+    scheduling:
+      pool:
+        size: 2
   application:
     name: mcp-server-rag
   datasource:
-    url: jdbc:postgresql://localhost:5432/postgres?currentSchema=rag
-    username: postgres
-    password: 123456789
+    url: ${RAG_DB_URL:jdbc:postgresql://localhost:5432/postgres?currentSchema=rag}
+    username: ${RAG_DB_USER:postgres}
+    password: ${RAG_DB_PASSWORD:12345678}
     driver-class-name: org.postgresql.Driver
   servlet:
     multipart:
@@ -41,8 +58,10 @@ spring:
 app:
   security:
     # 管理端登录账号
-    username: admin
-    password: admin123
+    username: ${RAG_ADMIN_USER:admin}
+    password: ${RAG_ADMIN_PASSWORD:admin123}
+    # 仅填写真实反向代理的直连 IP；默认不信任任何转发头
+    trusted-proxies: []
     # 允许访问管理页面与管理 API 的 IP 白名单
     ip-whitelist:
       - 127.0.0.1
@@ -61,6 +80,10 @@ app:
     overlap: 150
 
   rag:
+    hybrid: true
+    candidate-count: 40
+    min-similarity: 0
+    max-code-chars: 24000
     default-top-k: 5
     max-top-k: 20
     max-chunk-chars: 1200
@@ -68,14 +91,30 @@ app:
 
   embedding:
     # 如已知模型维度可直接配置；未知时可保持空并开启 auto-detect
-    dimension: 768
+    dimension: 1024
     auto-detect: true
-    # Embedding 输入最大字符数，过长将被截断以避免模型异常
+    # 超限明确失败，避免静默截断导致正文与向量不一致
     max-input-chars: 2000
+    batch-enabled: true
+    batch-size: 16
+    cache-size: 512
+    max-concurrent-requests: 2
+
+  parsing:
+    max-text-chars: 2000000
+
+  indexing:
+    enabled: true
+    workers: 1
+    max-queued-jobs: 2000
+    lease-seconds: 180
+    # 已结束任务与评测运行记录保留天数；0 表示不自动清理，评测问题本身始终保留
+    retention-days: 30
 
   database:
     # 是否在启动时自动建表（包含 pgvector 扩展）
     init-schema: false
+    migrate-schema: true
 
   mcp:
     # MCP 入口路径
@@ -85,7 +124,16 @@ app:
     instructions: |
       这是一个“基于 RAG 的 MCP Server”。
       - resource: rag.search（输入 query + topK，返回匹配切片）
-      - tool: rag.ask（输入 question + topK，返回可直接用于回答的上下文块）
+      - tool: rag.ask（不区分文件类型，输入 question + topK，返回可直接用于回答的上下文块）
+      - tool: rag.retrieve（结构化检索，返回混合召回结果、耗时、版本化来源 URI 与有界上下文）
+      - tool: kb.list（发现知识库目录与目录 ID）
+      - resource: rag://files/{fileId}/revisions/{revision}/chunks/{chunkIndex}（读取检索证据，旧版本过期时重新检索）
+      - tool: business.search（检索 BUSINESS 与默认 ALL 类型的业务资料，可按项目目录过滤）
+      - tool: code.find（按类名、方法名、签名或 SQL ID 搜索代码符号）
+      - tool: code.get_class / code.get_method（返回带原始行号的 Java 源码，超出长度预算会标记 truncated）
+      - tool: code.get_sql（返回 MyBatis XML 中指定 ID 的完整 SQL）
+      - tool: code.get_by_line（根据文件路径和行号定位所在方法或 SQL）
+      - tool: code.search（检索 CODE 与默认 ALL 类型中的 Java 与 XML SQL，可按项目目录过滤）
 
 management:
   endpoints:

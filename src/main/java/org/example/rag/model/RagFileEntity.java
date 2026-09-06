@@ -17,9 +17,27 @@ public class RagFileEntity {
     private Long id;
 
     private String filename;
+    private long revision;
+    private String contentHash;
+    private String indexFingerprint;
+    private String embeddingModel;
+    public long getRevision() { return revision; }
+    public void setRevision(long value) { revision = value; }
+    public String getContentHash() { return contentHash; }
+    public void setContentHash(String value) { contentHash = value; }
+    public String getIndexFingerprint() { return indexFingerprint; }
+    public void setIndexFingerprint(String value) { indexFingerprint = value; }
+    public String getEmbeddingModel() { return embeddingModel; }
+    public void setEmbeddingModel(String value) { embeddingModel = value; }
+
+    @TableField("folder_id")
+    private Long folderId;
 
     @TableField("content_type")
     private String contentType;
+
+    @TableField("knowledge_type")
+    private String knowledgeType;
 
     private long size;
 
@@ -59,12 +77,28 @@ public class RagFileEntity {
         this.filename = filename;
     }
 
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
+    }
+
     public String getContentType() {
         return contentType;
     }
 
     public void setContentType(String contentType) {
         this.contentType = contentType;
+    }
+
+    public String getKnowledgeType() {
+        return knowledgeType;
+    }
+
+    public void setKnowledgeType(String knowledgeType) {
+        this.knowledgeType = knowledgeType;
     }
 
     public long getSize() {

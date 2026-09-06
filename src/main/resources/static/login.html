@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 · RAG Studio</title>
+  <link rel="stylesheet" href="login.css">
+  <script type="module" src="login.js"></script>
+</head>
+<body>
+  <main class="login-shell">
+    <div class="login-brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <rect width="40" height="40" rx="10" fill="currentColor"/>
+        <path d="m11 14 9-4 9 4-9 4-9-4Zm0 6 9 4 9-4m-18 6 9 4 9-4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>RAG STUDIO</span>
+    </div>
+    <section class="login-card" aria-labelledby="loginTitle">
+      <header>
+        <p class="login-kicker">知识服务管理端</p>
+        <h1 id="loginTitle">登录工作台</h1>
+        <p class="login-description">使用管理账号登录，继续管理你的知识库。</p>
+      </header>
+      <form id="loginForm" action="api/auth/login" method="post" aria-busy="true">
+        <div class="login-field">
+          <label for="username">用户名</label>
+          <input id="username" name="username" type="text" placeholder="请输入用户名" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="login-field">
+          <label for="password">密码</label>
+          <div class="password-field">
+            <input id="password" name="password" type="password" placeholder="请输入密码" autocomplete="current-password" required>
+            <button id="togglePassword" class="password-toggle" type="button" aria-label="显示密码" aria-pressed="false" aria-controls="password">显示</button>
+          </div>
+        </div>
+        <p id="loginMessage" class="login-message" role="status" aria-live="polite">正在连接管理端…</p>
+        <button id="loginBtn" class="login-submit" type="submit" disabled>正在连接…</button>
+      </form>
+      <noscript><p class="login-message" data-type="error">登录需要 JavaScript，请启用后刷新页面。</p></noscript>
+    </section>
+    <p class="login-footer">登录后可访问工作台内容</p>
+  </main>
+</body>
+</html>

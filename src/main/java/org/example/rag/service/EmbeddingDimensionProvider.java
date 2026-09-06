@@ -43,6 +43,7 @@ public class EmbeddingDimensionProvider {
             throw new IllegalStateException("自动探测向量维度失败，Ollama 返回为空。");
         }
         cachedDimension.set(vector.length);
+        properties.getEmbedding().setDimension(vector.length);
         log.info("自动探测向量维度成功：{}", vector.length);
         return vector.length;
     }
