@@ -47,7 +47,7 @@ public class EvaluationController {
         List<Long> expected=json.readValue(sample.expectedFileIds(),new TypeReference<>() { });
         for (Long fileId:expected) if (files.selectMetadata(fileId)==null)
             throw new IllegalStateException("参考文件已删除，请重新标注评测问题");
-        var report=search.retrieve(sample.question(),request.topK(),sample.folderId(),sample.knowledgeType(),request.mode(),request.minSimilarity());
+        var report=search.retrieve(sample.question(),request.topK(),sample.folderId(),sample.knowledgeType(),request.mode(),request.minSimilarity(),request.rerank());
         List<Long> found=report.hits().stream().map(hit->hit.result().fileId()).distinct().toList();
         long matched=expected.stream().filter(found::contains).count();
         int first=0;
@@ -57,6 +57,8 @@ public class EvaluationController {
         result.put("recall",expected.isEmpty()?null:(double)matched/expected.size());
         result.put("reciprocalRank",sample.expectEmpty()?null:(first==0?0:1.0/first));
         result.put("expectEmpty",sample.expectEmpty()); result.put("model",report.model());
+        result.put("rerank",report.rerank());
+        result.put("strategy",Boolean.TRUE.equals(request.rerank())?"rerank":report.mode());
         result.put("topK",request.topK()); result.put("minSimilarity",request.minSimilarity());
         result.put("totalMillis",report.totalMillis()); result.put("fileIds",found);
         result.put("sources",report.hits().stream().map(hit->hit.result().sourceUri()).toList());
@@ -68,5 +70,7 @@ public class EvaluationController {
         if (id!=null && id<0) throw new IllegalArgumentException("目录 ID 不合法");
         if (id!=null && id>0) folders.requireFolder(id);
     }
-    public record RunRequest(String mode,Integer topK,Double minSimilarity) { }
+    public record RunRequest(String mode,Integer topK,Double minSimilarity,Boolean rerank) {
+        public RunRequest(String mode,Integer topK,Double minSimilarity) { this(mode,topK,minSimilarity,false); }
+    }
 }

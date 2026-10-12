@@ -43,6 +43,14 @@ public class IndexJobWorker {
         if (!ready) return;
         try {
             jobs.recoverExpired();
+            fillAvailableSlots();
+        } catch (Exception ex) { log.warn("索引任务领取失败，将自动重试: {}",ex.getMessage()); }
+    }
+
+    /** 完成一个文件就补上一个任务；定时轮询只负责空队列唤醒和过期租约恢复。 */
+    private synchronized void fillAvailableSlots() {
+        if (!ready) return;
+        try {
             while (active.size()<properties.getIndexing().getWorkers()) {
                 String owner=UUID.randomUUID().toString();
                 String id=jobs.claim(owner,properties.getIndexing().getLeaseSeconds());
@@ -87,7 +95,11 @@ public class IndexJobWorker {
             log.error("索引任务失败: {}",id,ex);
             try { jobs.finish(id,owner,"FAILED",safeMessage(ex.getMessage())); }
             catch (Exception failure) { log.warn("保存失败结果时连接中断，等待租约恢复: {}",id); }
-        } finally { active.remove(owner); org.slf4j.MDC.remove("jobId"); }
+        } finally {
+            active.remove(owner);
+            org.slf4j.MDC.remove("jobId");
+            fillAvailableSlots();
+        }
     }
 
     private String safeMessage(String message) {
@@ -96,8 +108,11 @@ public class IndexJobWorker {
 
     @PreDestroy
     public void stop() {
-        ready=false;
-        executor.shutdownNow();
+        // 与领取互斥，保证关停后不会继续领取任务；等待线程退出时不持有此锁。
+        synchronized (this) {
+            ready=false;
+            executor.shutdownNow();
+        }
         try { executor.awaitTermination(10,TimeUnit.SECONDS); }
         catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
     }

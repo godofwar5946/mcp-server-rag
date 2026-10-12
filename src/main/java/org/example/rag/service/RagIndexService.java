@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
 
 /** 先在事务外准备完整索引，最后交给独立事务服务发布；失败不会删除原索引。 */
 @Service
@@ -96,6 +97,7 @@ public class RagIndexService {
 
     public IndexResult indexRegistered(RagFileEntity file, String contentType, byte[] bytes,
                                        boolean force, IndexProgress progress, IndexJobLease lease) {
+        long started = System.nanoTime();
         try {
             String hash = hash(bytes);
             EmbeddingModel model = models.current();
@@ -117,6 +119,7 @@ public class RagIndexService {
             if (drafts.isEmpty()) throw new IllegalStateException("文件没有有效切片");
             int completed = 0;
             int batchSize = properties.getEmbedding().getBatchSize();
+            long parsedAt = System.nanoTime();
             progress.update("EMBEDDING", 0, drafts.size());
             for (int start = 0; start < drafts.size(); start += batchSize) {
                 List<PreparedIndex.Chunk> batch = drafts.subList(start, Math.min(start + batchSize, drafts.size()));
@@ -131,8 +134,15 @@ public class RagIndexService {
                 progress.update("EMBEDDING", completed, drafts.size());
             }
             progress.update("PUBLISHING", completed, drafts.size());
+            long embeddedAt = System.nanoTime();
             writer.publish(file, contentType, bytes, new PreparedIndex(text,
                     parsed == null ? List.of() : parsed.symbols(), drafts, hash, fingerprint, model), lease);
+            long publishedAt = System.nanoTime();
+            log.info("索引完成: fileId={}, chunks={}, prepareMs={}, embeddingMs={}, publishMs={}, totalMs={}",
+                    file.getId(), drafts.size(), TimeUnit.NANOSECONDS.toMillis(parsedAt - started),
+                    TimeUnit.NANOSECONDS.toMillis(embeddedAt - parsedAt),
+                    TimeUnit.NANOSECONDS.toMillis(publishedAt - embeddedAt),
+                    TimeUnit.NANOSECONDS.toMillis(publishedAt - started));
             return new IndexResult(file.getId(), file.getFilename(), true, "索引成功，共 " + drafts.size() + " 个切片");
         } catch (CancellationException e) {
             throw e;

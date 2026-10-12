@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const post = body => ({method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 const el = (tag, text, css = '') => { const element = document.createElement(tag); element.textContent = text ?? ''; element.className = css; return element; };
 const percent = value => value == null ? '—' : `${(value * 100).toFixed(1)}%`;
+const strategies = {vector: '纯向量', hybrid: '混合检索', rerank: '混合 + 重排'};
 
 export function createEvaluation({request, state, showToast}) {
   let data = {data: [], runs: []}, running = false, stop = false, epoch = 0;
@@ -23,15 +24,17 @@ export function createEvaluation({request, state, showToast}) {
       const row = el('article', '', 'evaluation-row');
       const main = el('div'); main.append(el('strong', sample.question), el('p', sample.expectEmpty ? '期望：无结果' : `参考文件：${JSON.parse(sample.expectedFileIds).join(', ')}`, 'source-meta'));
       row.append(main);
-      for (const mode of ['vector', 'hybrid']) {
-        const run = data.runs.find(item => item.caseId === sample.id && item.mode === mode);
+      for (const mode of Object.keys(strategies)) {
+        const run = data.runs.find(item => item.caseId === sample.id && (JSON.parse(item.result).strategy || item.mode) === mode);
         const cell = el('div', '', 'eval-result');
-        cell.append(el('small', mode === 'vector' ? '纯向量 · 最近一次' : '混合检索 · 最近一次'));
+        cell.append(el('small', `${strategies[mode]} · 最近一次`));
         if (run) {
           const result = JSON.parse(run.result);
           cell.append(el('strong', result.hit ? '符合预期' : '未达预期', result.hit ? 'positive' : 'negative'),
             el('small', `${result.expectEmpty ? '空结果检查' : `Recall ${percent(result.recall)} · MRR ${result.reciprocalRank.toFixed(3)}`} · ${result.totalMillis} ms`),
             el('small', `K ${result.topK ?? '默认'} · 阈值 ${result.minSimilarity ?? '默认'} · ${run.createdAt}`));
+          if (mode === 'rerank') cell.append(el('small', result.rerank?.status === 'APPLIED'
+            ? `${result.rerank.model} · 重排 ${result.rerank.millis} ms` : `未实际重排：${result.rerank?.message || '无状态记录'}`, result.rerank?.status === 'APPLIED' ? '' : 'negative'));
         } else cell.append(el('span', '未运行'));
         row.append(cell);
       }
@@ -63,17 +66,17 @@ export function createEvaluation({request, state, showToast}) {
       return showToast('Top K 应为 1～20，最低相似度应为 0～1', 'warning');
     if (!data.data.length) return showToast('请先添加评测问题', 'warning');
     running = true; stop = false;
-    const sequence = epoch, samples = [...data.data], results = {vector: [], hybrid: []};
+    const sequence = epoch, samples = [...data.data], results = {vector: [], hybrid: [], rerank: []};
     let completed = 0, errors = 0;
     $('runEvaluation').disabled = true; $('stopEvaluation').classList.remove('hidden');
     $('evaluationSummary').replaceChildren(); render();
     try {
       outer: for (const sample of samples) {
-        for (const mode of ['vector', 'hybrid']) {
+        for (const mode of Object.keys(strategies)) {
           if (stop || epoch !== sequence) break outer;
-          $('evaluationStatus').textContent = `正在运行 ${completed + 1}/${samples.length * 2} · ${mode === 'vector' ? '纯向量' : '混合检索'} · ${sample.question}`;
+          $('evaluationStatus').textContent = `正在运行 ${completed + 1}/${samples.length * 3} · ${strategies[mode]} · ${sample.question}`;
           try {
-            const body = await request(`/api/evaluations/${sample.id}/run`, post({mode, topK, minSimilarity}));
+            const body = await request(`/api/evaluations/${sample.id}/run`, post({mode: mode === 'rerank' ? 'hybrid' : mode, topK, minSimilarity, rerank: mode === 'rerank'}));
             if (sequence !== epoch) break outer;
             results[mode].push(body.data);
           } catch (error) { errors++; if (state.authenticated) fail(error); else break outer; }
@@ -84,10 +87,11 @@ export function createEvaluation({request, state, showToast}) {
       if (sequence === epoch) {
         $('evaluationStatus').textContent = `${stop ? '已停止' : '运行完成'}：${completed} 次请求，失败 ${errors} 次。以下统计仅包含本轮成功请求；耗时受顺序执行与缓存影响。`;
         for (const [mode, rows] of Object.entries(results)) {
-          const positives = rows.filter(row => !row.expectEmpty), empty = rows.filter(row => row.expectEmpty);
+          const measured = mode === 'rerank' ? rows.filter(row => row.rerank?.status === 'APPLIED' || row.rerank?.status === 'SKIPPED') : rows;
+          const positives = measured.filter(row => !row.expectEmpty), empty = measured.filter(row => row.expectEmpty);
           const average = (items, key) => items.length ? items.reduce((sum, row) => sum + Number(row[key]), 0) / items.length : null;
           const card = el('div', '', 'eval-summary');
-          card.append(el('strong', `${mode === 'vector' ? '纯向量' : '混合检索'} · ${rows.length} 次`),
+          card.append(el('strong', `${strategies[mode]} · ${measured.length} 次${measured.length !== rows.length ? `（排除 ${rows.length - measured.length} 次未启用或回退）` : ''}`),
             el('span', `命中率 ${percent(average(positives, 'hit'))} · Recall@${topK} ${percent(average(positives, 'recall'))}`),
             el('span', `MRR ${average(positives, 'reciprocalRank')?.toFixed(3) ?? '—'} · 空结果准确率 ${percent(average(empty, 'hit'))}`));
           $('evaluationSummary').append(card);

@@ -24,13 +24,16 @@ public class OllamaEmbeddingClient {
     private final AppProperties properties;
     private final MeterRegistry metrics;
     private final Semaphore calls;
-    private final Semaphore background = new Semaphore(1, true);
+    private final Semaphore background;
     private final Map<String,double[]> cache = new LinkedHashMap<>(64, 0.75f, true);
     private volatile boolean legacyApi;
 
     public OllamaEmbeddingClient(RestClient ollamaRestClient, AppProperties properties, MeterRegistry metrics) {
         this.restClient = ollamaRestClient; this.properties = properties; this.metrics = metrics;
         this.calls = new Semaphore(properties.getEmbedding().getMaxConcurrentRequests(), true);
+        // 总额度大于 1 时始终为在线检索保留一个额度，避免后台配置过大占满请求池。
+        this.background = new Semaphore(Math.min(properties.getEmbedding().getMaxBackgroundRequests(),
+                Math.max(1, properties.getEmbedding().getMaxConcurrentRequests() - 1)), true);
         this.legacyApi = !properties.getEmbedding().isBatchEnabled();
     }
 
@@ -43,25 +46,21 @@ public class OllamaEmbeddingClient {
     }
 
     public double[] embed(String text, EmbeddingModel model) {
-        return cachedEmbeddings(List.of(prepare(model.queryText(prepare(text)))), model).getFirst();
+        return cachedEmbeddings(List.of(prepare(model.queryText(prepare(text)))), model, false).getFirst();
     }
 
     public List<double[]> embedAll(List<String> texts, EmbeddingModel model) {
         if (texts.isEmpty()) return List.of();
-        // 后台导入至多占用一个模型请求，默认另外保留一个请求额度供在线检索使用。
-        acquire(background, 60);
-        try {
-            List<double[]> result = new ArrayList<>();
-            int size = properties.getEmbedding().getBatchSize();
-            for (int i = 0; i < texts.size(); i += size) {
-                result.addAll(cachedEmbeddings(texts.subList(i, Math.min(i + size, texts.size()))
-                        .stream().map(this::prepare).toList(), model));
-            }
-            return result;
-        } finally { background.release(); }
+        List<double[]> result = new ArrayList<>();
+        int size = properties.getEmbedding().getBatchSize();
+        for (int i = 0; i < texts.size(); i += size) {
+            result.addAll(cachedEmbeddings(texts.subList(i, Math.min(i + size, texts.size()))
+                    .stream().map(this::prepare).toList(), model, true));
+        }
+        return result;
     }
 
-    private List<double[]> cachedEmbeddings(List<String> texts, EmbeddingModel model) {
+    private List<double[]> cachedEmbeddings(List<String> texts, EmbeddingModel model, boolean backgroundWork) {
         Map<String,String> missing = new LinkedHashMap<>();
         Map<String,double[]> values = new HashMap<>();
         for (String text : texts) {
@@ -72,7 +71,7 @@ public class OllamaEmbeddingClient {
             else { values.put(key, cached); metrics.counter("rag.embedding.cache.hits").increment(); }
         }
         if (!missing.isEmpty()) {
-            List<double[]> computed = requestWithRetry(List.copyOf(missing.values()), model);
+            List<double[]> computed = requestWithRetry(List.copyOf(missing.values()), model, backgroundWork);
             if (computed.size() != missing.size()) throw new IllegalStateException("模型返回向量数量不正确");
             int i = 0;
             for (String key : missing.keySet()) {
@@ -88,9 +87,21 @@ public class OllamaEmbeddingClient {
         return texts.stream().map(text -> values.get(key(text, model)).clone()).toList();
     }
 
-    private List<double[]> requestWithRetry(List<String> input, EmbeddingModel model) {
+    private List<double[]> requestWithRetry(List<String> input, EmbeddingModel model, boolean backgroundWork) {
+        // 仅缓存未命中的实际批次占用后台额度，批次之间让出额度供其他文件/重建任务使用。
+        // 后台工作线程数量有界，排队使用可中断等待，避免慢批次使后续文件仅因排队超时而失败。
+        if (backgroundWork) acquireBackground(background);
+        try {
+            return limitedRequestWithRetry(input, model, backgroundWork);
+        } finally {
+            if (backgroundWork) background.release();
+        }
+    }
+
+    private List<double[]> limitedRequestWithRetry(List<String> input, EmbeddingModel model, boolean backgroundWork) {
         long started = System.nanoTime();
-        acquire(calls, 10);
+        if (backgroundWork) acquireBackground(calls);
+        else acquire(calls, 10);
         try {
             for (int attempt = 0; ; attempt++) {
                 try {
@@ -205,7 +216,7 @@ public class OllamaEmbeddingClient {
             throw new IllegalStateException("模型未返回版本摘要，无法安全切换");
         EmbeddingModel candidate=new EmbeddingModel(0,installed.name(),installed.digest(),
                 outputDimension==null?0:outputDimension,outputDimension,instruction);
-        List<double[]> vectors=requestWithRetry(List.of("知识库索引模型验证",candidate.queryText("如何检索资料？")),candidate);
+        List<double[]> vectors=requestWithRetry(List.of("知识库索引模型验证",candidate.queryText("如何检索资料？")),candidate,false);
         if (vectors.size()!=2) throw new IllegalStateException("模型返回向量数量不正确");
         validate(vectors.getFirst(),candidate.dimension());
         validate(vectors.getLast(),vectors.getFirst().length);
@@ -219,6 +230,11 @@ public class OllamaEmbeddingClient {
 
     public record InstalledModel(String name, String digest, long size) { }
     public record TagsResponse(List<InstalledModel> models) { }
+
+    private void acquireBackground(Semaphore semaphore) {
+        try { semaphore.acquire(); }
+        catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new CancellationException("任务已中断"); }
+    }
 
     private void acquire(Semaphore semaphore, int seconds) {
         try {

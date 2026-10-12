@@ -41,7 +41,7 @@ public class AppProperties {
         public int getRetentionDays() { return retentionDays; }
         public void setRetentionDays(int value) { retentionDays=Math.max(0,Math.min(3650,value)); }
         private boolean enabled = true;
-        private int workers = 1;
+        private int workers = 2;
         private int maxQueuedJobs = 2000;
         private int leaseSeconds = 180;
         public boolean isEnabled() { return enabled; }
@@ -287,9 +287,10 @@ public class AppProperties {
      * Embedding 向量维度配置。
      */
     public static class Embedding {
-        private int batchSize = 16;
+        private int batchSize = 32;
         private int cacheSize = 512;
-        private int maxConcurrentRequests = 2;
+        private int maxConcurrentRequests = 3;
+        private int maxBackgroundRequests = 2;
         private boolean batchEnabled = true;
         public int getBatchSize() { return batchSize; }
         public void setBatchSize(int value) { batchSize = Math.max(1, Math.min(value, 128)); }
@@ -297,6 +298,8 @@ public class AppProperties {
         public void setCacheSize(int value) { cacheSize = Math.max(0, Math.min(value, 10000)); }
         public int getMaxConcurrentRequests() { return maxConcurrentRequests; }
         public void setMaxConcurrentRequests(int value) { maxConcurrentRequests = Math.max(1, Math.min(value, 16)); }
+        public int getMaxBackgroundRequests() { return maxBackgroundRequests; }
+        public void setMaxBackgroundRequests(int value) { maxBackgroundRequests = Math.max(1, Math.min(value, 16)); }
         public boolean isBatchEnabled() { return batchEnabled; }
         public void setBatchEnabled(boolean value) { batchEnabled = value; }
         private Integer dimension;

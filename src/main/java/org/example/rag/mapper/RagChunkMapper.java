@@ -117,7 +117,10 @@ public interface RagChunkMapper extends BaseMapper<RagChunkEntity> {
               UNION ALL SELECT d.id FROM rag_folder d JOIN scope s ON d.parent_id=s.id
             ), hits AS MATERIALIZED (
               SELECT c.*,e.embedding,f.filename,f.folder_id,f.knowledge_type,f.revision,
-                ts_rank_cd(to_tsvector('simple',c.content),plainto_tsquery('simple',#{query})) AS lexical_rank
+                (CASE WHEN lower(c.content) LIKE #{pattern} ESCAPE '!' THEN 2.0 ELSE 0 END
+                 + ts_rank_cd(to_tsvector('simple',c.content),plainto_tsquery('simple',#{query}))
+                 <foreach collection="patterns" item="term"> + CASE WHEN lower(c.content) LIKE #{term} ESCAPE '!' THEN 1.0 ELSE 0 END </foreach>
+                ) AS lexical_rank
               FROM rag_chunk c JOIN rag_file f ON f.id=c.file_id
               JOIN rag_chunk_embedding e ON e.chunk_id=c.id AND e.model_id=#{model.id}
               WHERE f.status='INDEXED'
@@ -126,7 +129,8 @@ public interface RagChunkMapper extends BaseMapper<RagChunkEntity> {
                 AND (CAST(#{knowledgeType} AS TEXT) IS NULL OR f.knowledge_type IN ('ALL',#{knowledgeType}))
                 AND (NOT #{codeOnly} OR c.metadata->>'language' IN ('JAVA','XML'))
                 AND (to_tsvector('simple',c.content) @@ plainto_tsquery('simple',#{query})
-                     OR lower(c.content) LIKE #{pattern} ESCAPE '!')
+                     OR lower(c.content) LIKE #{pattern} ESCAPE '!'
+                     <foreach collection="patterns" item="term"> OR lower(c.content) LIKE #{term} ESCAPE '!' </foreach>)
               ORDER BY lexical_rank DESC,c.id LIMIT #{limit}
             ) SELECT h.file_id AS fileId,
                 CASE WHEN p.path IS NULL THEN h.filename ELSE p.path||'/'||h.filename END AS fileName,
@@ -144,7 +148,7 @@ public interface RagChunkMapper extends BaseMapper<RagChunkEntity> {
               ) p ON TRUE ORDER BY h.lexical_rank DESC,h.id
             </script>
             """)
-    List<RagSearchRow> searchLexical(@Param("query") String query,@Param("pattern") String pattern,
+    List<RagSearchRow> searchLexical(@Param("query") String query,@Param("pattern") String pattern,@Param("patterns") List<String> patterns,
         @Param("vector") String vector,@Param("limit") int limit,@Param("knowledgeType") String knowledgeType,
         @Param("folderId") Long folderId,@Param("codeOnly") boolean codeOnly,@Param("model") EmbeddingModel model);
 

@@ -55,7 +55,7 @@
           <div class="pane-header-actions">
             <span id="folderCount" class="count-badge" title="目录总数">0</span>
             <button id="folderPaneToggle" class="pane-toggle" type="button"
-                    aria-label="收起目录栏" title="收起目录栏">
+                    aria-label="收起目录栏" title="收起目录栏" aria-controls="folderPaneBody" aria-expanded="true">
               <span aria-hidden="true">‹</span>
             </button>
           </div>
@@ -76,15 +76,24 @@
             <span id="folderTreeMeta">目录树</span>
             <div class="tree-toolbar-actions">
               <button id="locateFolderBtn" type="button">定位当前</button>
-              <button id="collapseFoldersBtn" type="button">全部收起</button>
             </div>
           </div>
-          <div id="folderTree" class="folder-tree" role="tree" aria-label="知识库目录树"></div>
+          <div class="tree-expand-actions" aria-label="目录展开操作">
+            <button id="expandFoldersBtn" type="button">全部展开</button>
+            <button id="expandBranchBtn" type="button" disabled>展开当前分支</button>
+            <button id="collapseFoldersBtn" type="button">全部收起</button>
+          </div>
+          <div id="folderTree" class="folder-tree" role="tree" aria-label="知识库目录树" aria-describedby="folderTreeHint"></div>
+          <p id="folderTreeHint" class="folder-tree-hint">可横向滚动查看深层目录 · 方向键展开 / 收起</p>
         </div>
 
         <div class="pane-collapsed-label" aria-hidden="true">
           <span>LIBRARY</span>
         </div>
+        <div id="folderPaneResize" class="folder-pane-resize" role="separator" tabindex="0"
+             aria-orientation="vertical" aria-label="调整目录栏宽度" aria-controls="folderPane"
+             aria-valuemin="240" aria-valuemax="640" aria-valuenow="320"
+             title="拖动调整目录栏宽度，双击恢复默认；也可使用左右方向键"></div>
       </aside>
 
       <div class="file-pane">
@@ -238,8 +247,10 @@
         <textarea id="retrievalQuery" rows="3" maxlength="2000" required placeholder="输入业务问题、技术概念或需要查找的代码逻辑…"></textarea>
         <div class="query-options">
           <label>目录范围<select id="retrievalFolder" class="scope-select"><option value="">全部目录</option></select></label>
+          <button id="retrievalUseFolder" type="button" class="btn ghost small">使用当前目录</button>
           <label>分类<select id="retrievalType"><option value="ALL">全部分类</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select></label>
           <label>召回模式<select id="retrievalMode"><option value="hybrid">混合检索</option><option value="vector">纯向量</option><option value="keyword">关键词</option></select></label>
+          <label>重排<select id="retrievalRerank"><option value="auto">跟随管理端配置</option><option value="off">本次关闭（对比基线）</option></select></label>
           <label>Top K<input id="retrievalTopK" type="number" min="1" max="20" value="5" required></label>
           <label>最低向量相似度<input id="retrievalThreshold" type="number" min="0" max="1" step="0.05" value="0" required></label>
           <button id="retrieveBtn" class="btn primary" type="submit">开始检索</button>
@@ -261,7 +272,7 @@
     </section>
 
     <section id="evaluationPanel" class="card tool-panel hidden" aria-labelledby="evaluationTitle">
-      <div class="tool-heading"><div><div class="section-kicker">RETRIEVAL QUALITY</div><h2 id="evaluationTitle">用真实问题验证检索</h2><p>人工标注参考文件，比较纯向量与混合检索。指标衡量检索结果，不代表生成答案的正确率。</p></div><button id="exportEvaluation" type="button" class="btn ghost">导出评测记录</button></div>
+      <div class="tool-heading"><div><div class="section-kicker">RETRIEVAL QUALITY</div><h2 id="evaluationTitle">用真实问题验证检索</h2><p>人工标注参考文件，比较纯向量、混合检索与混合加重排。先在“服务与模型”启用重排；指标衡量检索结果，不代表答案正确率。</p></div><button id="exportEvaluation" type="button" class="btn ghost">导出评测记录</button></div>
       <form id="evaluationForm" class="evaluation-form">
         <label>评测问题<input id="evalQuestion" required maxlength="2000" placeholder="例如：订单超时后如何处理退款？"></label>
         <div class="query-options"><label>目录范围<select id="evalFolder" class="scope-select"><option value="">全部目录</option></select></label><label>分类<select id="evalType"><option value="ALL">全部分类</option><option value="BUSINESS">业务</option><option value="CODE">代码</option></select></label><label class="grow">参考文件 ID<input id="evalExpected" placeholder="例如 12, 18，可在文件详情查看"></label><label class="check-label"><input id="evalEmpty" type="checkbox">应无结果</label><button type="submit" class="btn primary">添加问题</button></div>
@@ -302,6 +313,30 @@
           <div class="model-actions"><button id="modelRetry" type="button" class="btn ghost hidden">从已完成进度重试</button><button id="modelCancel" type="button" class="btn ghost hidden">取消本次切换</button></div>
         </div>
         <p class="panel-note">覆盖所有目录、业务资料和代码的已发布切片。后台重新生成向量，全部完成后统一切换；期间继续使用当前模型与索引。原始文件、切片规则与代码定位保持不变，未成功解析的文件可到任务中心重试。进度会保存，关闭页面不影响处理。</p>
+      </section>
+      <section class="model-manager" aria-labelledby="rerankTitle">
+        <div class="model-heading"><div><h3 id="rerankTitle">Rerank 重排模型</h3><p>对召回候选再次排序，优先返回更贴近问题的片段。</p></div><span class="model-badge">无需重建向量</span></div>
+        <div class="model-current"><span>当前状态</span><strong id="rerankCurrent">登录后读取</strong><button id="rerankReload" type="button" class="btn ghost small">重新加载配置</button></div>
+        <form id="rerankForm"><fieldset id="rerankFields" disabled><legend class="sr-only">重排配置</legend>
+          <label class="rerank-toggle"><input id="rerankEnabled" type="checkbox">启用重排</label>
+          <div class="model-form-grid">
+            <label>服务根地址<input id="rerankUrl" type="url" required maxlength="500" placeholder="http://localhost:7998"></label>
+            <label>模型名<input id="rerankModel" list="rerankModelList" required maxlength="200" placeholder="Qwen/Qwen3-Reranker-4B"><datalist id="rerankModelList"></datalist></label>
+            <button id="rerankCatalog" type="button" class="btn ghost">读取已部署模型</button>
+          </div>
+          <div class="model-form-grid">
+            <label>重排候选数<input id="rerankCandidates" type="number" min="5" max="64" required></label>
+            <label>超时（毫秒）<input id="rerankTimeout" type="number" min="100" max="60000" required></label>
+            <label>单文件优先片段数<input id="rerankPerFile" type="number" min="0" max="10" required></label>
+          </div>
+          <details class="model-advanced"><summary>高级设置：输入长度与排序指令</summary>
+            <label>每篇候选最大字符数<input id="rerankChars" type="number" min="256" max="12000" required></label>
+            <label>排序指令<textarea id="rerankInstruction" rows="2" maxlength="1000"></textarea></label>
+          </details>
+          <div class="model-actions"><button type="submit" class="btn ghost">验证重排能力</button><button id="rerankSave" type="button" class="btn primary" disabled>保存设置</button></div>
+        </fieldset></form>
+        <div id="rerankMessage" class="model-message" role="status" aria-live="polite"></div>
+        <p class="panel-note">先部署重排服务，再填地址和模型名；支持 /rerank 接口，模型列表来自 /v1/models。RTX 5080 可先尝试 Qwen3-Reranker-4B，保留 BGE-M3。单文件优先片段数设为 0 表示不限，其他值在候选不足时允许补位；关闭重排时此设置仍生效。超时或服务繁忙会回退原排序，调试页可查看原因。</p>
       </section>
       <div id="systemStatus" class="status-line" role="status"></div><div id="systemMetrics" class="metric-strip"></div>
       <div class="system-grid"><article><h3>索引配置</h3><dl id="systemConfig"></dl></article><article><h3>MCP 客户端连接</h3><p>使用支持 Streamable HTTP 的客户端连接此地址。</p><pre id="mcpUrl"></pre><button id="copyMcp" type="button" class="btn ghost small">复制地址</button><p class="panel-note">当前分支使用匿名 MCP 接口；知识库管理使用登录会话。</p></article></div>

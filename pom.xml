@@ -32,6 +32,12 @@
   </dependencyManagement>
 
   <dependencies>
+    <!-- 中文查询分词；保留现有 PostgreSQL 全文与 trigram 索引，无需重新生成向量。 -->
+    <dependency>
+      <groupId>com.huaban</groupId>
+      <artifactId>jieba-analysis</artifactId>
+      <version>1.0.2</version>
+    </dependency>
     <!-- Spring Boot 基础能力 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

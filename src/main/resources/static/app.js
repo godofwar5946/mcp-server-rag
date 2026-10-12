@@ -5,15 +5,17 @@ let filesRequest = 0;
 let filesAbort;
 let redirectingToLogin = false;
 let sessionInitialization;
+const defaultFolderPaneWidth = 320;
 function readFolderUiState() {
   try {
     const value = JSON.parse(localStorage.getItem('ragFolderUi') || '{}');
     return {
       expandedFolders: Array.isArray(value.expandedFolders) ? value.expandedFolders.map(String) : [],
-      paneCollapsed: Boolean(value.paneCollapsed)
+      paneCollapsed: Boolean(value.paneCollapsed),
+      paneWidth: Number.isFinite(value.paneWidth) ? Math.min(640, Math.max(240, value.paneWidth)) : defaultFolderPaneWidth
     };
   } catch (error) {
-    return { expandedFolders: [], paneCollapsed: false };
+    return { expandedFolders: [], paneCollapsed: false, paneWidth: defaultFolderPaneWidth };
   }
 }
 
@@ -34,6 +36,7 @@ const state = {
   expandedFolders: new Set(folderUiState.expandedFolders),
   folderQuery: '',
   folderPaneCollapsed: folderUiState.paneCollapsed,
+  folderPaneWidth: folderUiState.paneWidth,
   fileMap: new Map(),
   uploadBusy: false,
   movingFileId: null,
@@ -68,12 +71,15 @@ const elements = {
   workspaceCard: document.getElementById('workspaceCard'),
   folderPane: document.getElementById('folderPane'),
   folderPaneToggle: document.getElementById('folderPaneToggle'),
+  folderPaneResize: document.getElementById('folderPaneResize'),
   folderSearch: document.getElementById('folderSearch'),
   clearFolderSearch: document.getElementById('clearFolderSearch'),
   folderShortcuts: document.getElementById('folderShortcuts'),
   folderTree: document.getElementById('folderTree'),
   folderTreeMeta: document.getElementById('folderTreeMeta'),
   collapseFoldersBtn: document.getElementById('collapseFoldersBtn'),
+  expandFoldersBtn: document.getElementById('expandFoldersBtn'),
+  expandBranchBtn: document.getElementById('expandBranchBtn'),
   locateFolderBtn: document.getElementById('locateFolderBtn'),
   folderCount: document.getElementById('folderCount'),
   createFolderBtn: document.getElementById('createFolderBtn'),
@@ -272,7 +278,9 @@ async function requestJson(url, options = {}) {
     throw new Error('登录已失效，请重新登录');
   }
   if (!response.ok || !body.success) {
-    throw new Error(responseErrorMessage(body, response));
+    const error = new Error(responseErrorMessage(body, response));
+    error.status = response.status;
+    throw error;
   }
   return body;
 }
@@ -315,10 +323,16 @@ function rebuildFolderMap() {
 }
 
 function persistFolderUiState() {
-  localStorage.setItem('ragFolderUi', JSON.stringify({
-    expandedFolders: Array.from(state.expandedFolders),
-    paneCollapsed: state.folderPaneCollapsed
-  }));
+  // 浏览器禁用存储时，仍允许本次会话正常浏览和调整目录。
+  try {
+    localStorage.setItem('ragFolderUi', JSON.stringify({
+      expandedFolders: Array.from(state.expandedFolders),
+      paneCollapsed: state.folderPaneCollapsed,
+      paneWidth: state.folderPaneWidth
+    }));
+  } catch (error) {
+    // UI 状态只是偏好，不影响目录操作。
+  }
 }
 
 function renderFolderNavigation() {
@@ -333,33 +347,58 @@ function renderFolderShortcuts() {
 }
 
 function renderFolderTree() {
-  elements.folderTree.innerHTML = '';
+  const tree = elements.folderTree;
+  const { scrollTop, scrollLeft } = tree;
+  const active = tree.contains(document.activeElement) ? document.activeElement : null;
+  const focusedId = active?.dataset.folderSelection || active?.dataset.folderToggle;
+  const focusedToggle = Boolean(active?.dataset.folderToggle);
+  const contents = document.createElement('div');
+  contents.className = 'folder-tree-items';
+  contents.setAttribute('role', 'none');
   const normalizedQuery = state.folderQuery.trim().toLocaleLowerCase('zh-CN');
+  tree.classList.toggle('searching', Boolean(normalizedQuery));
+  const branch = state.folderMap.get(String(state.folderSelection));
+  const hasBranches = Array.from(state.folderMap.values()).some(folder => folder.children?.length);
+  elements.expandFoldersBtn.disabled = Boolean(normalizedQuery) || !hasBranches;
+  elements.collapseFoldersBtn.disabled = Boolean(normalizedQuery) || !state.expandedFolders.size;
+  elements.expandBranchBtn.disabled = Boolean(normalizedQuery) || !branch?.children?.length;
+  elements.expandBranchBtn.title = branch ? `展开 ${branch.path} 的全部下级目录` : '先选择一个有下级的目录';
+  elements.locateFolderBtn.disabled = !isConcreteFolderSelection();
   if (normalizedQuery) {
     const matches = Array.from(state.folderMap.values())
       .filter(folder => folder.path.toLocaleLowerCase('zh-CN').includes(normalizedQuery))
       .sort((left, right) => left.path.localeCompare(right.path, 'zh-CN'));
     elements.folderTreeMeta.textContent = `${matches.length} 个匹配`;
-    matches.forEach(folder => appendFolderRow(folder, true));
+    matches.forEach((folder, index) => appendFolderRow(folder, true, contents, index, matches.length));
     if (!matches.length) {
-      appendFolderTreeEmpty('没有匹配的目录', '可以输入目录名称或路径中的任意一段');
+      appendFolderTreeEmpty('没有匹配的目录', '可以输入目录名称或路径中的任意一段', contents);
     }
-    return;
+  } else {
+    const appendVisibleNodes = nodes => {
+      nodes.forEach((node, index) => {
+        const folder = state.folderMap.get(String(node.id));
+        appendFolderRow(folder, false, contents, index, nodes.length);
+        if (state.expandedFolders.has(String(node.id))) {
+          appendVisibleNodes(node.children || []);
+        }
+      });
+    };
+    appendVisibleNodes(state.folderTree);
+    elements.folderTreeMeta.textContent = state.folderMap.size ? `已显示 ${contents.childElementCount} / ${state.folderMap.size}` : '暂无目录';
+    if (!state.folderTree.length) {
+      appendFolderTreeEmpty('还没有目录', '点击“新建下级目录”开始整理知识库', contents);
+    }
   }
-
-  elements.folderTreeMeta.textContent = state.folderMap.size ? '目录树' : '暂无目录';
-  const appendVisibleNodes = nodes => {
-    nodes.forEach(node => {
-      const folder = state.folderMap.get(String(node.id));
-      appendFolderRow(folder, false);
-      if (state.expandedFolders.has(String(node.id))) {
-        appendVisibleNodes(node.children || []);
-      }
-    });
-  };
-  appendVisibleNodes(state.folderTree);
-  if (!state.folderTree.length) {
-    appendFolderTreeEmpty('还没有目录', '点击“新建下级目录”开始整理知识库');
+  tree.replaceChildren(contents);
+  tree.scrollTop = scrollTop;
+  tree.scrollLeft = scrollLeft;
+  const items = Array.from(tree.querySelectorAll('[role="treeitem"]'));
+  const focusTarget = items.find(item => item.dataset.folderSelection === focusedId);
+  const tabStop = focusTarget || items.find(item => item.getAttribute('aria-selected') === 'true') || items[0];
+  if (tabStop) tabStop.tabIndex = 0;
+  if (focusTarget) {
+    const target = focusedToggle ? focusTarget.parentElement.querySelector('.folder-toggle') : focusTarget;
+    target.focus({ preventScroll: true });
   }
 }
 
@@ -382,21 +421,24 @@ function appendSpecialFolder(selection, labelText, markerText) {
   elements.folderShortcuts.appendChild(button);
 }
 
-function appendFolderRow(folder, searchResult) {
+function appendFolderRow(folder, searchResult, container, index, siblingCount) {
   if (!folder) return;
   const hasChildren = (folder.children || []).length > 0;
   const expanded = state.expandedFolders.has(String(folder.id));
   const selected = String(state.folderSelection) === String(folder.id);
   const row = document.createElement('div');
   row.className = `folder-row${searchResult ? ' search-result' : ''}`;
-  row.style.setProperty('--visual-depth', searchResult ? 0 : Math.min(folder.depth, 6));
+  row.style.setProperty('--visual-depth', searchResult ? 0 : folder.depth);
+  row.setAttribute('role', 'none');
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.className = `folder-toggle${expanded ? ' expanded' : ''}${hasChildren && !searchResult ? '' : ' leaf'}`;
   toggle.dataset.folderToggle = String(folder.id);
   toggle.disabled = !hasChildren || searchResult;
+  toggle.tabIndex = -1;
   toggle.setAttribute('aria-label', expanded ? `收起 ${folder.name}` : `展开 ${folder.name}`);
+  toggle.title = `${expanded ? '收起' : '展开'}目录；Shift + 点击可${expanded ? '收起' : '展开'}整个分支`;
 
   const button = document.createElement('button');
   button.type = 'button';
@@ -404,9 +446,12 @@ function appendFolderRow(folder, searchResult) {
   button.dataset.folderSelection = String(folder.id);
   button.title = folder.path;
   button.setAttribute('role', 'treeitem');
-  button.setAttribute('aria-level', String(folder.depth + 1));
+  button.tabIndex = -1;
+  button.setAttribute('aria-level', String(searchResult ? 1 : folder.depth + 1));
+  button.setAttribute('aria-posinset', String(index + 1));
+  button.setAttribute('aria-setsize', String(siblingCount));
   button.setAttribute('aria-selected', String(selected));
-  if (hasChildren) {
+  if (hasChildren && !searchResult) {
     button.setAttribute('aria-expanded', String(expanded));
   }
 
@@ -435,10 +480,10 @@ function appendFolderRow(folder, searchResult) {
   count.title = `当前目录 ${directFileCount} 个文件，包含下级共 ${totalFileCount} 个`;
   button.append(icon, labelGroup, count);
   row.append(toggle, button);
-  elements.folderTree.appendChild(row);
+  container.appendChild(row);
 }
 
-function appendFolderTreeEmpty(title, hint) {
+function appendFolderTreeEmpty(title, hint, container = elements.folderTree) {
   const empty = document.createElement('div');
   empty.className = 'folder-tree-empty';
   const strong = document.createElement('strong');
@@ -446,7 +491,7 @@ function appendFolderTreeEmpty(title, hint) {
   const detail = document.createElement('div');
   detail.textContent = hint;
   empty.append(strong, detail);
-  elements.folderTree.appendChild(empty);
+  container.appendChild(empty);
 }
 
 function selectFolder(selection) {
@@ -455,6 +500,8 @@ function selectFolder(selection) {
   elements.folderSearch.value = '';
   elements.clearFolderSearch.classList.add('hidden');
   state.page = 1;
+  const folder = state.folderMap.get(String(selection));
+  if (folder?.children?.length) state.expandedFolders.add(String(selection));
   expandSelectedAncestors();
   renderFolderNavigation();
   updateSelectionLabels();
@@ -462,15 +509,38 @@ function selectFolder(selection) {
   loadFiles().catch(showError);
 }
 
-function toggleFolder(folderId) {
+function toggleFolder(folderId, recursive = false) {
   const normalizedId = String(folderId);
-  if (state.expandedFolders.has(normalizedId)) {
+  if (recursive) {
+    setFolderBranchExpanded(state.folderMap.get(normalizedId), !state.expandedFolders.has(normalizedId));
+  } else if (state.expandedFolders.has(normalizedId)) {
     state.expandedFolders.delete(normalizedId);
   } else {
     state.expandedFolders.add(normalizedId);
   }
   persistFolderUiState();
   renderFolderTree();
+}
+
+function setFolderBranchExpanded(folder, expanded) {
+  if (!folder?.children?.length) return;
+  const id = String(folder.id);
+  if (expanded) state.expandedFolders.add(id);
+  else state.expandedFolders.delete(id);
+  folder.children.forEach(child => setFolderBranchExpanded(child, expanded));
+}
+
+function expandAllFolders() {
+  state.folderTree.forEach(folder => setFolderBranchExpanded(folder, true));
+  persistFolderUiState();
+  renderFolderTree();
+}
+
+function expandCurrentBranch() {
+  setFolderBranchExpanded(state.folderMap.get(String(state.folderSelection)), true);
+  expandSelectedAncestors();
+  renderFolderTree();
+  scrollSelectedFolderIntoView();
 }
 
 function expandSelectedAncestors() {
@@ -501,8 +571,51 @@ function locateCurrentFolder() {
 
 function scrollSelectedFolderIntoView() {
   const selected = elements.folderTree.querySelector('.folder-node.selected');
-  if (selected) {
-    selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (selected) revealFolderRow(selected);
+}
+
+// 只滚动目录容器，定位深层节点时不带动整页或右侧文件区。
+function revealFolderRow(item) {
+  const tree = elements.folderTree;
+  const viewport = tree.getBoundingClientRect();
+  const row = item.getBoundingClientRect();
+  if (row.top < viewport.top) tree.scrollTop += row.top - viewport.top;
+  else if (row.bottom > viewport.top + tree.clientHeight) tree.scrollTop += row.bottom - viewport.top - tree.clientHeight;
+  const left = row.left - 28;
+  const right = Math.min(row.right, left + tree.clientWidth);
+  if (left < viewport.left) tree.scrollLeft += left - viewport.left;
+  else if (right > viewport.left + tree.clientWidth) tree.scrollLeft += right - viewport.left - tree.clientWidth;
+}
+
+function handleFolderTreeKeydown(event) {
+  const item = event.target.closest('[role="treeitem"]');
+  if (!item || event.altKey || event.ctrlKey || event.metaKey) return;
+  const items = Array.from(elements.folderTree.querySelectorAll('[role="treeitem"]'));
+  const index = items.indexOf(item);
+  const folder = state.folderMap.get(item.dataset.folderSelection);
+  let next;
+  switch (event.key) {
+    case 'ArrowDown': next = items[index + 1]; break;
+    case 'ArrowUp': next = items[index - 1]; break;
+    case 'Home': next = items[0]; break;
+    case 'End': next = items[items.length - 1]; break;
+    case 'ArrowRight':
+      if (state.folderQuery.trim() || !folder?.children?.length) break;
+      if (!state.expandedFolders.has(String(folder.id))) toggleFolder(folder.id);
+      else next = items[index + 1];
+      break;
+    case 'ArrowLeft':
+      if (state.folderQuery.trim()) break;
+      if (state.expandedFolders.has(String(folder.id))) toggleFolder(folder.id);
+      else next = items.find(candidate => candidate.dataset.folderSelection === String(folder.parentId));
+      break;
+    default: return;
+  }
+  event.preventDefault();
+  if (next) {
+    items.forEach(candidate => { candidate.tabIndex = candidate === next ? 0 : -1; });
+    next.focus({ preventScroll: true });
+    revealFolderRow(next);
   }
 }
 
@@ -517,6 +630,26 @@ function applyFolderPaneState() {
   elements.folderPane.classList.toggle('collapsed', state.folderPaneCollapsed);
   elements.folderPaneToggle.setAttribute('aria-label', state.folderPaneCollapsed ? '展开目录栏' : '收起目录栏');
   elements.folderPaneToggle.title = state.folderPaneCollapsed ? '展开目录栏' : '收起目录栏';
+  elements.folderPaneToggle.setAttribute('aria-expanded', String(!state.folderPaneCollapsed));
+  applyFolderPaneWidth();
+}
+
+function folderPaneMaxWidth() {
+  return Math.max(240, Math.min(640, Math.floor(elements.workspaceCard.clientWidth * 0.55)));
+}
+
+function applyFolderPaneWidth() {
+  const maximum = folderPaneMaxWidth();
+  const width = Math.max(240, Math.min(maximum, state.folderPaneWidth));
+  elements.workspaceCard.style.setProperty('--folder-pane-width', `${width}px`);
+  elements.folderPaneResize.setAttribute('aria-valuemax', String(maximum));
+  elements.folderPaneResize.setAttribute('aria-valuenow', String(width));
+  elements.folderPaneResize.setAttribute('aria-valuetext', `${width} 像素`);
+}
+
+function setFolderPaneWidth(width) {
+  state.folderPaneWidth = Math.round(Math.max(240, Math.min(folderPaneMaxWidth(), width)));
+  applyFolderPaneWidth();
 }
 
 function updateSelectionLabels() {
@@ -1508,7 +1641,7 @@ function formatTime(value) {
 function handleFolderNavigationClick(event) {
   const toggle = event.target.closest('[data-folder-toggle]');
   if (toggle) {
-    toggleFolder(toggle.dataset.folderToggle);
+    toggleFolder(toggle.dataset.folderToggle, event.shiftKey);
     return;
   }
   const button = event.target.closest('[data-folder-selection]');
@@ -1572,11 +1705,55 @@ elements.folderSearch.addEventListener('keydown', event => {
   if (event.key === 'Escape') clearFolderSearch();
 });
 elements.clearFolderSearch.addEventListener('click', clearFolderSearch);
+elements.expandFoldersBtn.addEventListener('click', expandAllFolders);
+elements.expandBranchBtn.addEventListener('click', expandCurrentBranch);
 elements.collapseFoldersBtn.addEventListener('click', collapseAllFolders);
 elements.locateFolderBtn.addEventListener('click', locateCurrentFolder);
+elements.folderTree.addEventListener('keydown', handleFolderTreeKeydown);
 elements.folderPaneToggle.addEventListener('click', () => {
   setFolderPaneCollapsed(!state.folderPaneCollapsed);
 });
+// 使用指针捕获，拖动离开分隔线后仍能连续调整；键盘用户也可操作分隔线。
+let folderPaneDrag;
+elements.folderPaneResize.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || state.folderPaneCollapsed || !window.matchMedia('(min-width: 781px)').matches) return;
+  event.preventDefault();
+  folderPaneDrag = { pointerId: event.pointerId, startX: event.clientX, width: elements.folderPane.getBoundingClientRect().width };
+  elements.folderPaneResize.setPointerCapture(event.pointerId);
+  elements.folderPaneResize.focus({ preventScroll: true });
+  elements.workspaceCard.classList.add('resizing-folders');
+});
+elements.folderPaneResize.addEventListener('pointermove', event => {
+  if (folderPaneDrag?.pointerId !== event.pointerId) return;
+  setFolderPaneWidth(folderPaneDrag.width + event.clientX - folderPaneDrag.startX);
+});
+function finishFolderPaneResize(event) {
+  if (folderPaneDrag?.pointerId !== event.pointerId) return;
+  folderPaneDrag = null;
+  elements.workspaceCard.classList.remove('resizing-folders');
+  if (elements.folderPaneResize.hasPointerCapture(event.pointerId)) elements.folderPaneResize.releasePointerCapture(event.pointerId);
+  persistFolderUiState();
+}
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+  elements.folderPaneResize.addEventListener(type, finishFolderPaneResize);
+});
+elements.folderPaneResize.addEventListener('dblclick', () => {
+  setFolderPaneWidth(defaultFolderPaneWidth);
+  persistFolderUiState();
+});
+elements.folderPaneResize.addEventListener('keydown', event => {
+  const width = Number(elements.folderPaneResize.getAttribute('aria-valuenow'));
+  let next;
+  if (event.key === 'ArrowLeft') next = width - 24;
+  else if (event.key === 'ArrowRight') next = width + 24;
+  else if (event.key === 'Home') next = 240;
+  else if (event.key === 'End') next = folderPaneMaxWidth();
+  else return;
+  event.preventDefault();
+  setFolderPaneWidth(next);
+  persistFolderUiState();
+});
+new ResizeObserver(applyFolderPaneWidth).observe(elements.workspaceCard);
 elements.folderBreadcrumb.addEventListener('click', event => {
   const button = event.target.closest('[data-breadcrumb-selection]');
   if (button) selectFolder(button.dataset.breadcrumbSelection);

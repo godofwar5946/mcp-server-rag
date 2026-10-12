@@ -47,3 +47,6 @@ codex.txt
 AGENT.md
 # 本机凭据（不进入源码和构建产物）
 /config/application-local.yml
+/services/rerank/.venv/
+/services/rerank/.cache/
+__pycache__/

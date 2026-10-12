@@ -96,16 +96,19 @@ app:
     # 超限明确失败，避免静默截断导致正文与向量不一致
     max-input-chars: 2000
     batch-enabled: true
-    batch-size: 16
+    # GPU 导入起始值；每批数量与并发需结合显存、模型耗时调整
+    batch-size: ${RAG_EMBEDDING_BATCH_SIZE:32}
     cache-size: 512
-    max-concurrent-requests: 2
+    max-concurrent-requests: ${RAG_EMBEDDING_MAX_CONCURRENT_REQUESTS:3}
+    # 后台共享此额度；实际最多为总额度减 1，为在线查询保留请求额度
+    max-background-requests: ${RAG_EMBEDDING_MAX_BACKGROUND_REQUESTS:2}
 
   parsing:
     max-text-chars: 2000000
 
   indexing:
     enabled: true
-    workers: 1
+    workers: ${RAG_INDEX_WORKERS:2}
     max-queued-jobs: 2000
     lease-seconds: 180
     # 已结束任务与评测运行记录保留天数；0 表示不自动清理，评测问题本身始终保留

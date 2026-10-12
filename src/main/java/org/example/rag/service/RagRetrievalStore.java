@@ -11,16 +11,20 @@ import java.util.List;
 @Service
 public class RagRetrievalStore {
     private final RagChunkMapper mapper;
-    public RagRetrievalStore(RagChunkMapper mapper) { this.mapper=mapper; }
+    private final LexicalQueryService lexical;
+    public RagRetrievalStore(RagChunkMapper mapper,LexicalQueryService lexical) { this.mapper=mapper; this.lexical=lexical; }
 
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ,timeout=10)
     public Candidates retrieve(String query,String vector,int count,String type,Long folderId,boolean codeOnly,String mode,EmbeddingModel model) {
         mapper.configureSearch(Integer.toString(Math.max(80,count*2)));
         List<RagSearchRow> dense="keyword".equals(mode)?List.of():mapper.search(vector,count,type,folderId,codeOnly,model);
-        String pattern="%"+query.toLowerCase(java.util.Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_")+"%";
-        List<RagSearchRow> lexical="vector".equals(mode)?List.of():mapper.searchLexical(query,pattern,vector,count,type,folderId,codeOnly,model);
-        return new Candidates(dense,lexical);
+        List<String> terms="vector".equals(mode)?List.of():lexical.terms(query);
+        List<RagSearchRow> words="vector".equals(mode)?List.of():mapper.searchLexical(query,LexicalQueryService.pattern(query),
+                terms.stream().map(LexicalQueryService::pattern).toList(),vector,count,type,folderId,codeOnly,model);
+        return new Candidates(dense,words,terms);
     }
 
-    public record Candidates(List<RagSearchRow> dense,List<RagSearchRow> lexical) { }
+    public record Candidates(List<RagSearchRow> dense,List<RagSearchRow> lexical,List<String> terms) {
+        public Candidates(List<RagSearchRow> dense,List<RagSearchRow> lexical) { this(dense,lexical,List.of()); }
+    }
 }

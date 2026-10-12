@@ -1,5 +1,6 @@
 import { createEvaluation } from './evaluation.js';
 import { createModelManager } from './models.js';
+import { createRerankManager } from './rerank.js';
 
 const $ = id => document.getElementById(id);
 export function node(tag, text, className = '') {
@@ -22,6 +23,7 @@ export function createWorkbench(ctx) {
   let previewId, previewRevision, previewMode = 'source', previewPage = 0, previewSequence = 0;
   let authEpoch = 0, wasAuthenticated = false;
   const evaluation = createEvaluation({ request, state, showToast });
+  const rerank = createRerankManager({ request, state, showToast });
   const models = createModelManager({ request, state, showToast, onChanged: () => refreshSystem().catch(fail) });
 
   function switchView(next) {
@@ -35,7 +37,7 @@ export function createWorkbench(ctx) {
     if (!state.authenticated) return;
     if (next === 'library') loadFolders().then(loadFiles).catch(fail);
     if (next === 'jobs') refreshJobs().catch(fail);
-    if (next === 'system') { refreshSystem().catch(fail); models.load(); }
+    if (next === 'system') { refreshSystem().catch(fail); models.load(); rerank.load(); }
     if (next === 'evaluation') evaluation.load().catch(fail);
   }
   document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
@@ -215,10 +217,10 @@ export function createWorkbench(ctx) {
     wasAuthenticated = authenticated;
     authEpoch++;
     clearInterval(poll);
-    if (authenticated) { pollTasks(); poll = setInterval(pollTasks, 4000); if (view !== 'library') switchView(view); }
+    if (authenticated) { rerank.load(); pollTasks(); poll = setInterval(pollTasks, 4000); if (view !== 'library') switchView(view); }
     else {
       jobSequence++; retrievalSequence++; evidenceSequence++; previewSequence++;
-      retrievalAbort?.abort(); report = null; evaluation.clear(); models.clear();
+      retrievalAbort?.abort(); report = null; evaluation.clear(); models.clear(); rerank.clear();
       $('retrieveBtn').disabled = false;
       $('jobsList').replaceChildren(); $('jobBadge').textContent = '0';
       $('retrievalHits').replaceChildren(); $('evidenceText').textContent = '登录后开始检索';
@@ -243,18 +245,25 @@ export function createWorkbench(ctx) {
     try {
       const body = await request('/api/search', {...jsonPost({query: $('retrievalQuery').value,
         topK: Number($('retrievalTopK').value), folderId: $('retrievalFolder').value === '' ? null : Number($('retrievalFolder').value),
-        knowledgeType: $('retrievalType').value, mode: $('retrievalMode').value, minSimilarity: Number($('retrievalThreshold').value)}), signal: retrievalAbort.signal});
+        knowledgeType: $('retrievalType').value, mode: $('retrievalMode').value, minSimilarity: Number($('retrievalThreshold').value),
+        rerank: $('retrievalRerank').value === 'off' ? false : null}), signal: retrievalAbort.signal});
       if (sequence !== retrievalSequence || !state.authenticated) return;
       report = body.data;
       $('retrievalStatus').textContent = report.hits.length ? `命中 ${report.hits.length} 个片段${report.contextTruncated ? ' · 上下文已按预算截断，可读取完整来源' : ''}` : '未找到符合条件的片段，请调整问题、目录或阈值。';
       $('retrievalSummary').classList.remove('hidden');
       $('retrievalSummary').replaceChildren(metric('候选片段', report.candidateCount), metric('查询向量', `${report.embeddingMillis} ms`), metric('数据库检索', `${report.retrievalMillis} ms`), metric('总耗时', `${report.totalMillis} ms`));
+      if (report.rerank) {
+        const info = report.rerank, label = {APPLIED: '已重排', DISABLED: '未重排', SKIPPED: '跳过', FALLBACK: '已回退'}[info.status] || info.status;
+        $('retrievalSummary').append(metric(label, `${info.millis} ms`));
+        $('retrievalStatus').textContent += ` · ${label}：${info.message}${info.status === 'APPLIED' ? `（${info.model}，${info.scoredCount} 个候选）` : ''}`;
+      }
+      if (report.keywords?.length) $('retrievalStatus').textContent += ` · 关键词：${report.keywords.join('、')}`;
       $('retrievalHits').replaceChildren();
       if (!report.hits.length) $('retrievalHits').append(node('div', '没有可引用的证据。当前查询不会生成上下文。', 'empty-state'));
       report.hits.forEach((hit, i) => {
         const button = node('button', null, 'hit-card');
         const result = hit.result;
-        button.append(node('span', `#${i + 1} · ${hit.channels.join(' + ')} · ${report.mode === 'keyword' ? '融合排名分 ' + hit.rankScore.toFixed(4) : '相似度 ' + result.similarity.toFixed(3)}`, 'source-meta'),
+        button.append(node('span', `#${i + 1} · ${hit.channels.join(' + ')} · RRF ${hit.rankScore.toFixed(4)}${report.mode === 'keyword' ? '' : ' · 向量 ' + result.similarity.toFixed(3)}${hit.rerankScore == null ? '' : ' · 重排 ' + hit.rerankScore.toFixed(4)}`, 'source-meta'),
           node('strong', result.fileName), node('span', result.content, 'hit-excerpt'), node('small', `切片 ${result.chunkIndex} · 版本 ${result.revision}${result.truncated ? ' · 片段已截断' : ''}`));
         button.onclick = () => showEvidence(result, button);
         $('retrievalHits').append(button);
@@ -266,6 +275,7 @@ export function createWorkbench(ctx) {
     finally { if (sequence === retrievalSequence) $('retrieveBtn').disabled = false; }
   };
   $('retrievalMode').onchange = () => { $('retrievalThreshold').disabled = $('retrievalMode').value === 'keyword'; };
+  $('retrievalUseFolder').onclick = () => { $('retrievalFolder').value = state.folderSelection === 'all' ? '' : state.folderSelection === 'root' ? '0' : String(state.folderSelection); };
   async function showEvidence(result, button) {
     const sequence = ++evidenceSequence;
     document.querySelectorAll('.hit-card').forEach(card => card.classList.toggle('selected', card === button));
@@ -349,7 +359,7 @@ export function createWorkbench(ctx) {
     entries.forEach(([label, value]) => $('systemConfig').append(node('dt', label), node('dd', value)));
     $('mcpUrl').textContent = new URL(data.mcpEndpoint, location.origin).href;
   }
-  $('refreshSystem').onclick = () => { models.load(); refreshSystem().catch(error => { $('systemStatus').textContent = error.message; }); };
+  $('refreshSystem').onclick = () => { models.load(); rerank.load(); refreshSystem().catch(error => { $('systemStatus').textContent = error.message; }); };
   $('copyMcp').onclick = () => copy($('mcpUrl').textContent);
 
   // 统一现有对话框的键盘行为：打开后聚焦、Tab 循环、关闭后恢复焦点。

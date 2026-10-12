@@ -18,7 +18,7 @@ public class RetrievalController {
     @PostMapping("/search")
     public Map<String,Object> search(@RequestBody SearchRequest request) {
         return Map.of("success",true,"data",search.retrieve(request.query(),request.topK(),request.folderId(),
-                request.knowledgeType(),request.mode(),request.minSimilarity()));
+                request.knowledgeType(),request.mode(),request.minSimilarity(),request.rerank()));
     }
     @GetMapping("/files/{id}")
     public Map<String,Object> detail(@PathVariable long id) {
@@ -43,5 +43,5 @@ public class RetrievalController {
         if (chunk==null) throw new IllegalStateException("来源版本已更新或切片不存在，请重新检索");
         return Map.of("success",true,"data",chunk);
     }
-    public record SearchRequest(String query,Integer topK,Long folderId,String knowledgeType,String mode,Double minSimilarity) { }
+    public record SearchRequest(String query,Integer topK,Long folderId,String knowledgeType,String mode,Double minSimilarity,Boolean rerank) { }
 }
